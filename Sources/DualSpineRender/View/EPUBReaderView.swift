@@ -4,18 +4,11 @@ import UIKit
 import WebKit
 import DualSpineCore
 
-/// The primary EPUB rendering surface. A SwiftUI wrapper around WKWebView
+/// The primary EPUB rendering surface. A SwiftUI wrapper around `WKWebView`
 /// that uses `EPUBSchemeHandler` to serve content directly from the ZIP archive.
 ///
-/// Usage:
-/// ```swift
-/// EPUBReaderView(
-///     document: epubDocument,
-///     resourceActor: resourceActor,
-///     spineIndex: $currentSpineIndex,
-///     onMessage: { message in /* handle bridge messages */ }
-/// )
-/// ```
+/// "Highlight" and "Remove Highlight" appear in the native text selection menu
+/// (next to Copy, Look Up, Translate) — not in a separate UI bar.
 @MainActor
 public struct EPUBReaderView: UIViewRepresentable {
     let document: EPUBDocument
@@ -23,7 +16,13 @@ public struct EPUBReaderView: UIViewRepresentable {
     @Binding var spineIndex: Int
     var themeCSS: String?
     var isPaginated: Bool
+    var highlights: [HighlightRecord]
     var onMessage: ((EPUBBridgeMessage) -> Void)?
+    /// Called when the user taps a color in the floating highlight toolbar.
+    /// Provides the selection payload and chosen tint hex.
+    var onHighlightRequest: ((_ selection: EPUBBridgeMessage.SelectionPayload, _ tintHex: String) -> Void)?
+    /// Called when the user taps "Remove Highlight" in the floating toolbar.
+    var onRemoveHighlightRequest: ((String) -> Void)?
 
     public init(
         document: EPUBDocument,
@@ -31,70 +30,76 @@ public struct EPUBReaderView: UIViewRepresentable {
         spineIndex: Binding<Int>,
         themeCSS: String? = nil,
         isPaginated: Bool = false,
-        onMessage: ((EPUBBridgeMessage) -> Void)? = nil
+        highlights: [HighlightRecord] = [],
+        onMessage: ((EPUBBridgeMessage) -> Void)? = nil,
+        onHighlightRequest: ((_ selection: EPUBBridgeMessage.SelectionPayload, _ tintHex: String) -> Void)? = nil,
+        onRemoveHighlightRequest: ((String) -> Void)? = nil
     ) {
         self.document = document
         self.resourceActor = resourceActor
         self._spineIndex = spineIndex
         self.themeCSS = themeCSS
         self.isPaginated = isPaginated
+        self.highlights = highlights
         self.onMessage = onMessage
+        self.onHighlightRequest = onHighlightRequest
+        self.onRemoveHighlightRequest = onRemoveHighlightRequest
     }
 
     public func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
     }
 
-    public func makeUIView(context: Context) -> WKWebView {
+    public func makeUIView(context: Context) -> DualSpineWebView {
         let configuration = WKWebViewConfiguration()
 
-        // Register the custom scheme handler
         let schemeHandler = EPUBSchemeHandler(
             resourceActor: resourceActor,
             contentBasePath: document.contentBasePath
         )
         configuration.setURLSchemeHandler(schemeHandler, forURLScheme: EPUBSchemeHandler.scheme)
 
-        // Register the JS bridge
         context.coordinator.bridge.register(in: configuration)
 
-        // Configure web view
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = DualSpineWebView(frame: .zero, configuration: configuration)
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
         webView.navigationDelegate = context.coordinator
-
-        // Disable zoom (EPUB content should be styled, not user-zoomed)
         webView.scrollView.minimumZoomScale = 1.0
         webView.scrollView.maximumZoomScale = 1.0
         webView.scrollView.bouncesZoom = false
 
-        // Store reference for updates
+        // Register Highlight / Remove Highlight in the system edit menu
+        webView.registerMenuItems()
+
+        let coordinator = context.coordinator
+        webView.onHighlightAction = { [weak coordinator] in
+            coordinator?.handleHighlightColorAction(tintHex: HighlightTint.defaultHex)
+        }
+        webView.onRemoveHighlight = { [weak coordinator] highlightID in
+            coordinator?.handleRemoveHighlightMenuAction(highlightID: highlightID)
+        }
+
         context.coordinator.webView = webView
         context.coordinator.schemeHandler = schemeHandler
-
-        // Load the first spine item
         context.coordinator.loadSpineItem(at: spineIndex)
 
         return webView
     }
 
-    public func updateUIView(_ webView: WKWebView, context: Context) {
+    public func updateUIView(_ webView: DualSpineWebView, context: Context) {
         let coordinator = context.coordinator
 
-        // Navigate to a different spine item if the index changed
         if coordinator.currentSpineIndex != spineIndex {
             coordinator.loadSpineItem(at: spineIndex)
         }
 
-        // Update theme if changed
         if let css = themeCSS, css != coordinator.currentThemeCSS {
             coordinator.currentThemeCSS = css
             coordinator.bridge.applyTheme(css, in: webView)
         }
 
-        // Toggle pagination mode
         if isPaginated != coordinator.currentPaginated {
             coordinator.currentPaginated = isPaginated
             if isPaginated {
@@ -102,6 +107,21 @@ public struct EPUBReaderView: UIViewRepresentable {
             } else {
                 coordinator.bridge.disablePagination(in: webView)
             }
+        }
+
+        // Apply highlights when they change
+        let spineHighlights = highlights.filter { $0.spineIndex == coordinator.currentSpineIndex }
+        if spineHighlights != coordinator.appliedHighlights {
+            coordinator.appliedHighlights = spineHighlights
+            let commands = spineHighlights.map { record in
+                EPUBBridgeController.HighlightCommand(
+                    id: record.id.uuidString,
+                    rangeStart: record.rangeStart,
+                    rangeEnd: record.rangeEnd,
+                    color: HighlightTint.cssColor(hex: record.tintHex)
+                )
+            }
+            coordinator.bridge.applyHighlights(commands, in: webView)
         }
     }
 
@@ -111,11 +131,13 @@ public struct EPUBReaderView: UIViewRepresentable {
     public final class Coordinator: NSObject, WKNavigationDelegate {
         let parent: EPUBReaderView
         let bridge = EPUBBridgeController()
-        weak var webView: WKWebView?
+        weak var webView: DualSpineWebView?
         var schemeHandler: EPUBSchemeHandler?
         var currentSpineIndex: Int = -1
         var currentThemeCSS: String?
         var currentPaginated: Bool = false
+        var appliedHighlights: [HighlightRecord] = []
+        var lastSelection: EPUBBridgeMessage.SelectionPayload?
 
         init(parent: EPUBReaderView) {
             self.parent = parent
@@ -123,6 +145,20 @@ public struct EPUBReaderView: UIViewRepresentable {
 
             bridge.onMessage = { [weak self] message in
                 self?.handleBridgeMessage(message)
+            }
+        }
+
+        /// Called when user taps a highlight color in the system edit menu.
+        func handleHighlightColorAction(tintHex: String) {
+            guard let selection = lastSelection else { return }
+            parent.onHighlightRequest?(selection, tintHex)
+        }
+
+        /// Called from "Remove Highlight" in the native system edit menu.
+        func handleRemoveHighlightMenuAction(highlightID: String) {
+            parent.onRemoveHighlightRequest?(highlightID)
+            if let webView {
+                bridge.removeHighlight(id: highlightID, in: webView)
             }
         }
 
@@ -137,7 +173,6 @@ public struct EPUBReaderView: UIViewRepresentable {
             let (_, manifestItem) = resolvedSpine[index]
             let href = manifestItem.href
 
-            // Build the epub-content:// URL
             let archivePath = parent.document.contentBasePath + href
             guard let url = URL(string: "\(EPUBSchemeHandler.scheme)://book/\(archivePath)") else {
                 return
@@ -154,12 +189,48 @@ public struct EPUBReaderView: UIViewRepresentable {
                 if let css = currentThemeCSS, let webView {
                     bridge.applyTheme(css, in: webView)
                 }
-                // Apply pagination after theme
+                if let webView {
+                    let spineHighlights = parent.highlights.filter { $0.spineIndex == currentSpineIndex }
+                    appliedHighlights = spineHighlights
+                    let commands = spineHighlights.map { record in
+                        EPUBBridgeController.HighlightCommand(
+                            id: record.id.uuidString,
+                            rangeStart: record.rangeStart,
+                            rangeEnd: record.rangeEnd,
+                            color: HighlightTint.cssColor(hex: record.tintHex)
+                        )
+                    }
+                    if !commands.isEmpty {
+                        bridge.applyHighlights(commands, in: webView)
+                    }
+                }
                 if currentPaginated, let webView {
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(100))
                         self.bridge.enablePagination(in: webView)
                     }
+                }
+
+            case .selectionChanged(let payload):
+                lastSelection = payload
+                // Update highlight overlap state so the menu shows the right items
+                webView?.checkSelectionHighlightOverlap()
+
+            case .selectionCleared:
+                lastSelection = nil
+                webView?.selectionOverlapsHighlight = false
+                webView?.overlappingHighlightID = nil
+
+            case .highlightRequest(let payload):
+                // JS dot strip: user tapped a color dot
+                if let selection = lastSelection {
+                    parent.onHighlightRequest?(selection, payload.tintHex)
+                }
+
+            case .removeHighlightRequest(let payload):
+                parent.onRemoveHighlightRequest?(payload.highlightId)
+                if let webView {
+                    bridge.removeHighlight(id: payload.highlightId, in: webView)
                 }
 
             case .linkTapped(let payload):
@@ -168,7 +239,6 @@ public struct EPUBReaderView: UIViewRepresentable {
                 }
 
             case .paginationAtEnd:
-                // Auto-advance to next spine item
                 let nextIndex = currentSpineIndex + 1
                 if nextIndex < parent.document.package.spine.count {
                     parent.spineIndex = nextIndex
@@ -176,12 +246,10 @@ public struct EPUBReaderView: UIViewRepresentable {
                 }
 
             case .paginationAtStart:
-                // Auto-advance to previous spine item (land on last page)
                 let prevIndex = currentSpineIndex - 1
                 if prevIndex >= 0 {
                     parent.spineIndex = prevIndex
                     loadSpineItem(at: prevIndex)
-                    // TODO: navigate to last page of previous spine item after load
                 }
 
             default:

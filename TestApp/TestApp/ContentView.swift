@@ -14,9 +14,7 @@ struct ContentView: View {
     @State private var showThemePicker = false
     @State private var showSearch = false
     @State private var currentProgress: Double = 0
-    @State private var lastSelection: EPUBBridgeMessage.SelectionPayload?
     @State private var highlights: [HighlightRecord] = []
-    @State private var showHighlightPicker = false
     @State private var isPaginated = false
     @State private var currentPage = 0
     @State private var totalPages = 1
@@ -34,7 +32,6 @@ struct ContentView: View {
                 .sheet(isPresented: $showTOC) { tocSheet }
                 .sheet(isPresented: $showThemePicker) { themeSheet }
                 .sheet(isPresented: $showSearch) { searchSheet }
-                .sheet(isPresented: $showHighlightPicker) { highlightColorSheet }
         }
     }
 
@@ -48,11 +45,15 @@ struct ContentView: View {
                 currentTheme: currentTheme,
                 isPaginated: isPaginated,
                 currentProgress: $currentProgress,
-                lastSelection: $lastSelection,
                 currentPage: $currentPage,
                 totalPages: $totalPages,
                 highlights: highlights,
-                onHighlightRequest: { showHighlightPicker = true },
+                onHighlightRequest: { selection, tintHex in
+                    createHighlight(selection: selection, tintHex: tintHex)
+                },
+                onRemoveHighlightRequest: { highlightID in
+                    highlights.removeAll { $0.id.uuidString == highlightID }
+                },
                 onProgressSave: { savePosition(document: document) }
             )
         } else if let errorMessage {
@@ -123,21 +124,6 @@ struct ContentView: View {
         }
     }
 
-    private var highlightColorSheet: some View {
-        NavigationStack {
-            HighlightColorView { hex in
-                createHighlight(tintHex: hex)
-                showHighlightPicker = false
-            }
-            .navigationTitle("Highlight Color")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Cancel") { showHighlightPicker = false } }
-            }
-        }
-        .presentationDetents([.height(250)])
-    }
-
     // MARK: - Logic
 
     private func loadEPUB() async {
@@ -189,14 +175,13 @@ struct ContentView: View {
         }
     }
 
-    private func createHighlight(tintHex: String) {
-        guard let sel = lastSelection else { return }
+    private func createHighlight(selection: EPUBBridgeMessage.SelectionPayload, tintHex: String) {
         let record = HighlightRecord(
             spineIndex: spineIndex,
-            spineHref: sel.spineHref,
-            selectedText: sel.text,
-            rangeStart: sel.rangeStart,
-            rangeEnd: sel.rangeEnd,
+            spineHref: selection.spineHref,
+            selectedText: selection.text,
+            rangeStart: selection.rangeStart,
+            rangeEnd: selection.rangeEnd,
             tintHex: tintHex
         )
         highlights.append(record)
@@ -220,11 +205,11 @@ struct ReaderContentView: View {
     let currentTheme: EPUBTheme
     let isPaginated: Bool
     @Binding var currentProgress: Double
-    @Binding var lastSelection: EPUBBridgeMessage.SelectionPayload?
     @Binding var currentPage: Int
     @Binding var totalPages: Int
     let highlights: [HighlightRecord]
-    let onHighlightRequest: () -> Void
+    let onHighlightRequest: (EPUBBridgeMessage.SelectionPayload, String) -> Void
+    let onRemoveHighlightRequest: (String) -> Void
     let onProgressSave: () -> Void
 
     var body: some View {
@@ -235,33 +220,15 @@ struct ReaderContentView: View {
                 spineIndex: $spineIndex,
                 themeCSS: currentTheme.toCSS(),
                 isPaginated: isPaginated,
-                onMessage: { handleMessage($0) }
+                highlights: highlights,
+                onMessage: { handleMessage($0) },
+                onHighlightRequest: { selection, tintHex in onHighlightRequest(selection, tintHex) },
+                onRemoveHighlightRequest: { id in onRemoveHighlightRequest(id) }
             )
-
-            if lastSelection != nil {
-                selectionBar
-            }
 
             progressBar
             navigationBar
         }
-    }
-
-    private var selectionBar: some View {
-        HStack {
-            Text("\"\(String(lastSelection?.text.prefix(40) ?? ""))...\"")
-                .font(.caption)
-                .lineLimit(1)
-            Spacer()
-            Button("Highlight") { onHighlightRequest() }
-                .font(.caption.bold())
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .controlSize(.small)
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 6)
-        .background(Color(.systemGroupedBackground))
     }
 
     private var progressBar: some View {
@@ -310,10 +277,8 @@ struct ReaderContentView: View {
                 totalSpineItems: document.spineCount
             )
             onProgressSave()
-        case .selectionChanged(let payload):
-            lastSelection = payload
-        case .selectionCleared:
-            lastSelection = nil
+        case .selectionChanged, .selectionCleared:
+            break // Handled by EPUBReaderView coordinator for menu actions
         case .contentReady:
             currentProgress = ReadingPosition.computeOverallProgress(
                 spineIndex: spineIndex, chapterProgress: 0, totalSpineItems: document.spineCount
@@ -502,35 +467,6 @@ struct SearchView: View {
             results = r
             isSearching = false
         }
-    }
-}
-
-// MARK: - Highlight Color Picker
-
-struct HighlightColorView: View {
-    let onSelect: (String) -> Void
-
-    var body: some View {
-        VStack(spacing: 20) {
-            Text("Choose highlight color").font(.headline)
-            HStack(spacing: 16) {
-                ForEach(HighlightTint.palette, id: \.hex) { item in
-                    Button {
-                        onSelect(item.hex)
-                    } label: {
-                        VStack(spacing: 6) {
-                            Circle()
-                                .fill(Color(hex: item.hex))
-                                .frame(width: 44, height: 44)
-                            Text(item.name)
-                                .font(.caption2)
-                                .foregroundStyle(.primary)
-                        }
-                    }
-                }
-            }
-        }
-        .padding()
     }
 }
 

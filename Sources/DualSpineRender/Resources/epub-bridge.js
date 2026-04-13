@@ -232,6 +232,37 @@
         }
     };
 
+    /**
+     * Check if the current selection overlaps an existing highlight.
+     * Returns the highlight ID if overlapping, or empty string if not.
+     */
+    window.__dualSpine_getSelectionHighlightId = function() {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.rangeCount) return '';
+
+        // Walk up from the selection's anchor/focus nodes to find a highlight <mark>
+        var node = sel.anchorNode;
+        while (node && node !== document.body) {
+            if (node.nodeType === 1 && node.classList &&
+                node.classList.contains('dualspine-highlight')) {
+                return node.dataset.highlightId || '';
+            }
+            node = node.parentNode;
+        }
+
+        // Also check focus node
+        node = sel.focusNode;
+        while (node && node !== document.body) {
+            if (node.nodeType === 1 && node.classList &&
+                node.classList.contains('dualspine-highlight')) {
+                return node.dataset.highlightId || '';
+            }
+            node = node.parentNode;
+        }
+
+        return '';
+    };
+
     // ─── Navigation ──────────────────────────────────────────────────
 
     /**
@@ -541,6 +572,105 @@
             _tapOverlay = null;
         }
     }
+
+    // ─── Color Dot Strip (iPhone-style) ─────────────────────────────
+
+    var _dotStrip = null;
+    var _dotTimer = null;
+
+    var _highlightColors = [
+        { hex: '#F7C948', name: 'Yellow' },
+        { hex: '#4DB6AC', name: 'Green' },
+        { hex: '#64B5F6', name: 'Blue' },
+        { hex: '#FF8A65', name: 'Pink' },
+        { hex: '#BA68C8', name: 'Purple' }
+    ];
+
+    function _showDotStrip() {
+        _hideDotStrip();
+
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return;
+
+        _dotStrip = document.createElement('div');
+        _dotStrip.id = 'dualspine-dot-strip';
+
+        // Position directly below the selection, centered
+        var totalWidth = _highlightColors.length * 28 + (_highlightColors.length - 1) * 8;
+        var left = Math.max(8, rect.left + rect.width / 2 - totalWidth / 2);
+        if (left + totalWidth > window.innerWidth - 8) {
+            left = window.innerWidth - totalWidth - 8;
+        }
+        var top = rect.bottom + 6;
+        if (top + 28 > window.innerHeight) {
+            top = rect.top - 34;
+        }
+
+        _dotStrip.style.cssText = [
+            'position: fixed',
+            'z-index: 99999',
+            'display: flex',
+            'align-items: center',
+            'gap: 8px',
+            'top: ' + top + 'px',
+            'left: ' + left + 'px',
+            'pointer-events: auto'
+        ].join(';');
+
+        _highlightColors.forEach(function(c) {
+            var dot = document.createElement('button');
+            dot.title = c.name;
+            dot.style.cssText = [
+                'width: 24px',
+                'height: 24px',
+                'border-radius: 12px',
+                'border: none',
+                'cursor: pointer',
+                'padding: 0',
+                'background: ' + c.hex,
+                'box-shadow: 0 1px 3px rgba(0,0,0,0.3)',
+                '-webkit-tap-highlight-color: transparent'
+            ].join(';');
+            dot.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                postMessage('highlightRequest', { tintHex: c.hex });
+                _hideDotStrip();
+            });
+            _dotStrip.appendChild(dot);
+        });
+
+        document.body.appendChild(_dotStrip);
+    }
+
+    function _hideDotStrip() {
+        if (_dotStrip) {
+            _dotStrip.remove();
+            _dotStrip = null;
+        }
+    }
+
+    // Show dot strip shortly after selection stabilizes
+    document.addEventListener('selectionchange', function() {
+        clearTimeout(_dotTimer);
+        var sel = window.getSelection();
+        if (!sel || sel.isCollapsed) {
+            _hideDotStrip();
+            return;
+        }
+        _dotTimer = setTimeout(_showDotStrip, 100);
+    });
+
+    window.addEventListener('scroll', _hideDotStrip, { passive: true });
+    document.addEventListener('touchstart', function(e) {
+        if (_dotStrip && !_dotStrip.contains(e.target)) {
+            _hideDotStrip();
+        }
+    }, { passive: true });
 
     // ─── Content Ready ───────────────────────────────────────────────
 

@@ -22,6 +22,12 @@ public enum EPUBBridgeMessage: Sendable {
     /// An image in the content was tapped (for zoom/inspection).
     case imageTapped(ImagePayload)
 
+    /// User tapped a highlight color in the floating toolbar (JS-driven).
+    case highlightRequest(HighlightRequestPayload)
+
+    /// User tapped "Remove Highlight" in the floating toolbar (JS-driven).
+    case removeHighlightRequest(RemoveHighlightPayload)
+
     /// Page changed in paginated mode.
     case pageChanged(PagePayload)
 
@@ -74,6 +80,14 @@ public enum EPUBBridgeMessage: Sendable {
         public let naturalHeight: Int
     }
 
+    public struct HighlightRequestPayload: Codable, Sendable {
+        public let tintHex: String
+    }
+
+    public struct RemoveHighlightPayload: Codable, Sendable {
+        public let highlightId: String
+    }
+
     public struct PagePayload: Codable, Sendable {
         public let currentPage: Int
         public let totalPages: Int
@@ -122,6 +136,18 @@ public enum EPUBBridgeMessage: Sendable {
                 return nil
             }
             return .imageTapped(payload)
+
+        case "highlightRequest":
+            guard let payload = decodePayload(HighlightRequestPayload.self, from: dict["payload"]) else {
+                return nil
+            }
+            return .highlightRequest(payload)
+
+        case "removeHighlightRequest":
+            guard let payload = decodePayload(RemoveHighlightPayload.self, from: dict["payload"]) else {
+                return nil
+            }
+            return .removeHighlightRequest(payload)
 
         case "pageChanged":
             guard let payload = decodePayload(PagePayload.self, from: dict["payload"]) else {
