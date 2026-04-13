@@ -158,8 +158,15 @@
      * @param {Array} highlights - Array of { id, rangeStart, rangeEnd, color }.
      */
     window.__dualSpine_applyHighlights = function(highlights) {
-        // Remove existing highlights
-        document.querySelectorAll('.dualspine-highlight').forEach(el => el.remove());
+        // Remove existing highlights by unwrapping (preserving text content)
+        document.querySelectorAll('.dualspine-highlight').forEach(function(mark) {
+            var parent = mark.parentNode;
+            while (mark.firstChild) {
+                parent.insertBefore(mark.firstChild, mark);
+            }
+            parent.removeChild(mark);
+            parent.normalize();
+        });
 
         if (!highlights || !highlights.length) return;
 

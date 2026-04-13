@@ -90,6 +90,7 @@ public struct EPUBReaderView: UIViewRepresentable {
 
     public func updateUIView(_ webView: DualSpineWebView, context: Context) {
         let coordinator = context.coordinator
+        coordinator.parent = self  // Keep closures fresh
 
         if coordinator.currentSpineIndex != spineIndex {
             coordinator.loadSpineItem(at: spineIndex)
@@ -129,7 +130,7 @@ public struct EPUBReaderView: UIViewRepresentable {
 
     @MainActor
     public final class Coordinator: NSObject, WKNavigationDelegate {
-        let parent: EPUBReaderView
+        var parent: EPUBReaderView
         let bridge = EPUBBridgeController()
         weak var webView: DualSpineWebView?
         var schemeHandler: EPUBSchemeHandler?
@@ -150,8 +151,52 @@ public struct EPUBReaderView: UIViewRepresentable {
 
         /// Called when user taps a highlight color in the system edit menu.
         func handleHighlightColorAction(tintHex: String) {
-            guard let selection = lastSelection else { return }
-            parent.onHighlightRequest?(selection, tintHex)
+            if let selection = lastSelection {
+                parent.onHighlightRequest?(selection, tintHex)
+                return
+            }
+            // Fallback: query selection directly from JS if lastSelection was cleared
+            guard let webView else { return }
+            webView.evaluateJavaScript("""
+                (function() {
+                    var sel = window.getSelection();
+                    if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+                    var range = sel.getRangeAt(0);
+                    var text = sel.toString().trim();
+                    if (!text) return null;
+                    var rect = range.getBoundingClientRect();
+                    var preRange = document.createRange();
+                    preRange.selectNodeContents(document.body);
+                    preRange.setEnd(range.startContainer, range.startOffset);
+                    var rangeStart = preRange.toString().length;
+                    return {
+                        text: text,
+                        rangeStart: rangeStart,
+                        rangeEnd: rangeStart + text.length,
+                        rectX: rect.x, rectY: rect.y,
+                        rectWidth: rect.width, rectHeight: rect.height,
+                        spineHref: window.__dualSpine_spineHref || ''
+                    };
+                })()
+                """) { [weak self] result, _ in
+                guard let self,
+                      let dict = result as? [String: Any],
+                      let text = dict["text"] as? String,
+                      !text.isEmpty else { return }
+
+                let payload = EPUBBridgeMessage.SelectionPayload(
+                    text: text,
+                    rangeStart: dict["rangeStart"] as? Int ?? 0,
+                    rangeEnd: dict["rangeEnd"] as? Int ?? 0,
+                    rectX: dict["rectX"] as? Double ?? 0,
+                    rectY: dict["rectY"] as? Double ?? 0,
+                    rectWidth: dict["rectWidth"] as? Double ?? 0,
+                    rectHeight: dict["rectHeight"] as? Double ?? 0,
+                    spineHref: dict["spineHref"] as? String ?? ""
+                )
+                self.lastSelection = payload
+                self.parent.onHighlightRequest?(payload, tintHex)
+            }
         }
 
         /// Called from "Remove Highlight" in the native system edit menu.
@@ -163,6 +208,8 @@ public struct EPUBReaderView: UIViewRepresentable {
         }
 
         func loadSpineItem(at index: Int) {
+            lastSelection = nil  // Clear stale selection on navigation
+
             guard let webView,
                   index >= 0,
                   index < parent.document.package.spine.count else { return }
@@ -217,7 +264,9 @@ public struct EPUBReaderView: UIViewRepresentable {
                 webView?.checkSelectionHighlightOverlap()
 
             case .selectionCleared:
-                lastSelection = nil
+                // Don't clear lastSelection here — it's needed by the Highlight
+                // menu action which fires after the selection UI dismisses.
+                // lastSelection is cleared on spine navigation instead.
                 webView?.selectionOverlapsHighlight = false
                 webView?.overlappingHighlightID = nil
 
