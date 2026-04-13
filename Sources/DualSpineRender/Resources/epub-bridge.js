@@ -595,7 +595,7 @@
         const rect = range.getBoundingClientRect();
         if (rect.width === 0 && rect.height === 0) return;
 
-        // Apple Books-style: 5 pastel dots + underline in a pill container
+        // 5 color dots in a pill bar matching the system callout size
         var colors = [
             { hex: '#F7C948', name: 'Yellow' },
             { hex: '#69DB7C', name: 'Green' },
@@ -607,17 +607,16 @@
         _dotStrip = document.createElement('div');
         _dotStrip.id = 'dualspine-dot-strip';
 
-        var dotSize = 20;
-        var gap = 10;
-        var pillPad = 8;
-        var totalWidth = colors.length * dotSize + (colors.length - 1) * gap
-            + pillPad * 2 + 1 + gap + dotSize; // +separator +underline
-        var left = Math.max(8, rect.left + rect.width / 2 - totalWidth / 2);
-        if (left + totalWidth > window.innerWidth - 8) left = window.innerWidth - totalWidth - 8;
-        var top = rect.bottom + 6;
-        if (top + dotSize + pillPad * 2 > window.innerHeight) top = rect.top - dotSize - pillPad * 2 - 6;
+        // Match system callout dimensions: ~298px wide, 44px tall, centered
+        var barWidth = 298;
+        var barHeight = 44;
+        var dotSize = 28;
 
-        // Detect dark mode
+        var left = Math.max(8, rect.left + rect.width / 2 - barWidth / 2);
+        if (left + barWidth > window.innerWidth - 8) left = window.innerWidth - barWidth - 8;
+        var top = rect.bottom + 6;
+        if (top + barHeight > window.innerHeight) top = rect.top - barHeight - 6;
+
         var isDark = false;
         var bg = document.body.style.backgroundColor || '';
         if (bg.includes('#0') || bg.includes('#1') || bg.includes('rgb(1')) isDark = true;
@@ -625,15 +624,17 @@
         _dotStrip.style.cssText = [
             'position:fixed', 'z-index:99999',
             'display:flex', 'align-items:center',
-            'gap:' + gap + 'px',
+            'justify-content:center',
+            'gap:16px',
+            'width:' + barWidth + 'px',
+            'height:' + barHeight + 'px',
             'top:' + top + 'px', 'left:' + left + 'px',
             'pointer-events:auto',
-            'padding:' + pillPad + 'px ' + (pillPad + 2) + 'px',
-            'border-radius:' + (dotSize / 2 + pillPad) + 'px',
-            'background:' + (isDark ? 'rgba(58,58,60,0.92)' : 'rgba(255,255,255,0.95)'),
-            'box-shadow:0 2px 12px rgba(0,0,0,' + (isDark ? '0.4' : '0.15') + '), 0 0 0 0.5px rgba(0,0,0,0.06)',
-            '-webkit-backdrop-filter:blur(20px)',
-            'backdrop-filter:blur(20px)'
+            'border-radius:14px',
+            'background:' + (isDark ? 'rgba(58,58,60,0.95)' : 'rgba(255,255,255,0.98)'),
+            'box-shadow:0 2px 16px rgba(0,0,0,' + (isDark ? '0.5' : '0.18') + '), 0 0 0 0.5px rgba(0,0,0,0.08)',
+            '-webkit-backdrop-filter:blur(24px)',
+            'backdrop-filter:blur(24px)'
         ].join(';');
 
         colors.forEach(function(c) {
@@ -656,40 +657,6 @@
             });
             _dotStrip.appendChild(dot);
         });
-
-        // Separator line
-        var sep = document.createElement('span');
-        sep.style.cssText = 'width:1px;height:' + (dotSize - 4) + 'px;background:' +
-            (isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)') + ';flex-shrink:0;';
-        _dotStrip.appendChild(sep);
-
-        // Underline button
-        var uBtn = document.createElement('button');
-        uBtn.textContent = 'U';
-        uBtn.style.cssText = [
-            'width:' + dotSize + 'px',
-            'height:' + dotSize + 'px',
-            'border-radius:50%',
-            'border:1.5px solid ' + (isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)'),
-            'padding:0', 'margin:0',
-            'cursor:pointer',
-            'background:transparent',
-            'color:' + (isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.45)'),
-            'font-size:12px',
-            'font-weight:600',
-            'font-family:-apple-system,system-ui',
-            'text-decoration:underline',
-            'line-height:' + (dotSize - 3) + 'px',
-            'text-align:center',
-            'flex-shrink:0',
-            '-webkit-tap-highlight-color:transparent'
-        ].join(';');
-        uBtn.addEventListener('click', function(e) {
-            e.preventDefault(); e.stopPropagation();
-            postMessage('highlightRequest', { tintHex: 'underline' });
-            _hideDotStrip();
-        });
-        _dotStrip.appendChild(uBtn);
 
         document.body.appendChild(_dotStrip);
     };
