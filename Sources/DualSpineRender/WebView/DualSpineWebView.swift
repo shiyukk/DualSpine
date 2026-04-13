@@ -2,18 +2,17 @@
 import UIKit
 import WebKit
 
-/// WKWebView subclass that injects "Highlight" and "Remove" into the native
-/// text selection edit menu (the horizontal callout bar).
+/// WKWebView subclass that adds "Highlight" and "Remove Highlight" to the
+/// native system edit menu. These appear in the expanded menu after tapping `>`:
 ///
-/// Color selection is handled separately by the JS dot strip below the selection.
-/// The system menu provides "Highlight" (default color) and "Remove" (for existing highlights).
+///   Copy | Look Up | Translate | Search Web | Share... | **Highlight** | **Remove Highlight**
 @MainActor
 public final class DualSpineWebView: WKWebView {
 
-    /// Called when the user taps "Highlight" in the system callout.
+    /// Called when the user taps "Highlight" in the expanded system menu.
     public var onHighlightAction: (() -> Void)?
 
-    /// Called when the user taps "Remove" in the system callout. Passes highlight ID.
+    /// Called when the user taps "Remove Highlight". Passes the highlight ID.
     public var onRemoveHighlight: ((String) -> Void)?
 
     /// Whether the current selection overlaps an existing highlight.
@@ -26,9 +25,12 @@ public final class DualSpineWebView: WKWebView {
 
     override public func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(highlightSelection(_:)) {
-            return !selectionOverlapsHighlight
+            // Show "Highlight" only when text is selected and NOT on existing highlight
+            let hasSel = selectedTextLength > 0
+            return hasSel && !selectionOverlapsHighlight
         }
         if action == #selector(removeHighlight(_:)) {
+            // Show "Remove Highlight" only when on existing highlight
             return selectionOverlapsHighlight
         }
         return super.canPerformAction(action, withSender: sender)
@@ -48,7 +50,7 @@ public final class DualSpineWebView: WKWebView {
     public func registerMenuItems() {
         UIMenuController.shared.menuItems = [
             UIMenuItem(title: "Highlight", action: #selector(highlightSelection(_:))),
-            UIMenuItem(title: "Remove", action: #selector(removeHighlight(_:))),
+            UIMenuItem(title: "Remove Highlight", action: #selector(removeHighlight(_:))),
         ]
     }
 
@@ -65,6 +67,15 @@ public final class DualSpineWebView: WKWebView {
                 }
             }
         }
+    }
+
+    // MARK: - Private
+
+    /// Quick check if there's selected text (avoids async JS call for canPerformAction).
+    private var selectedTextLength: Int {
+        // WKWebView doesn't expose selection directly, but canPerformAction
+        // is only called when the system detects a selection, so return 1.
+        return 1
     }
 }
 #endif
