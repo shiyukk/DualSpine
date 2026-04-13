@@ -241,32 +241,39 @@ struct ReaderContentView: View {
 struct AppearanceSettingsView: View {
     @Binding var appearance: ReadingAppearanceSettings
 
+    /// Infer the current preset from theme + font combination.
+    private var presetBinding: Binding<ReadingAppearancePreset> {
+        Binding(
+            get: {
+                switch (appearance.theme, appearance.fontStyle) {
+                case (.sepia, .serif): return .classicBook
+                case (.system, .sans): return .modernArticle
+                case (.dark, .serif): return .nightFocus
+                default: return .classicBook  // Fallback for custom combos
+                }
+            },
+            set: { preset in
+                preset.apply(to: &appearance)
+            }
+        )
+    }
+
     var body: some View {
         List {
             // Presets
             Section("Presets") {
-                ForEach(ReadingAppearancePreset.allCases) { preset in
-                    Button {
-                        preset.apply(to: &appearance)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(preset.displayName).foregroundStyle(.primary)
-                            Text(preset.description).font(.caption).foregroundStyle(.secondary)
-                        }
+                Picker("Preset", selection: presetBinding) {
+                    ForEach(ReadingAppearancePreset.allCases) { preset in
+                        Text(preset.displayName).tag(preset)
                     }
-                }
+                }.pickerStyle(.segmented)
             }
 
             // Theme
             Section("Theme") {
                 Picker("Theme", selection: $appearance.theme) {
                     ForEach(ReadingTheme.allCases) { theme in
-                        HStack {
-                            Circle().fill(Color(hex: theme.backgroundColor))
-                                .overlay(Circle().stroke(Color.gray, lineWidth: 1))
-                                .frame(width: 22, height: 22)
-                            Text(theme.displayName)
-                        }.tag(theme)
+                        Text(theme.displayName).tag(theme)
                     }
                 }.pickerStyle(.segmented)
             }
