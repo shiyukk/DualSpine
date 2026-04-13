@@ -83,7 +83,7 @@ public enum HighlightTint: Sendable {
     ]
 
     /// CSS rgba color with alpha for overlay rendering.
-    public static func cssColor(hex: String, alpha: Double = 0.35) -> String {
+    public static func cssColor(hex: String, alpha: Double = 0.45) -> String {
         guard hex.count >= 7, hex.hasPrefix("#") else {
             return "rgba(247, 201, 72, \(alpha))"
         }

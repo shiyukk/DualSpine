@@ -186,37 +186,34 @@
         }
 
         for (const hl of highlights) {
-            const range = document.createRange();
-            let startSet = false;
-
+            // Collect text nodes that fall within the highlight range
+            var nodesToWrap = [];
             for (const tn of textNodes) {
-                // Find the text node containing the start offset
-                if (!startSet && tn.end > hl.rangeStart) {
-                    range.setStart(tn.node, hl.rangeStart - tn.start);
-                    startSet = true;
-                }
-                // Find the text node containing the end offset
-                if (startSet && tn.end >= hl.rangeEnd) {
-                    range.setEnd(tn.node, hl.rangeEnd - tn.start);
-                    break;
-                }
+                if (tn.end <= hl.rangeStart) continue;  // before range
+                if (tn.start >= hl.rangeEnd) break;      // past range
+
+                var wrapStart = Math.max(0, hl.rangeStart - tn.start);
+                var wrapEnd = Math.min(tn.node.length, hl.rangeEnd - tn.start);
+                nodesToWrap.push({ node: tn.node, start: wrapStart, end: wrapEnd });
             }
 
-            if (!startSet) continue;
+            // Wrap each text node segment individually (handles cross-element spans)
+            for (var i = nodesToWrap.length - 1; i >= 0; i--) {
+                var item = nodesToWrap[i];
+                try {
+                    var range = document.createRange();
+                    range.setStart(item.node, item.start);
+                    range.setEnd(item.node, item.end);
 
-            // Wrap the range with a highlight span
-            try {
-                const mark = document.createElement('mark');
-                mark.className = 'dualspine-highlight';
-                mark.dataset.highlightId = hl.id;
-                mark.style.backgroundColor = hl.color || 'rgba(247, 201, 72, 0.35)';
-                mark.style.borderRadius = '2px';
-                range.surroundContents(mark);
-            } catch (e) {
-                // surroundContents fails on partial selections spanning elements.
-                // Fall back to using CSS Highlight API or individual text node wrapping
-                // if available. For now, skip this highlight.
-                console.warn('[DualSpine] Highlight wrap failed for id:', hl.id, e);
+                    var mark = document.createElement('mark');
+                    mark.className = 'dualspine-highlight';
+                    mark.dataset.highlightId = hl.id;
+                    mark.style.backgroundColor = hl.color || 'rgba(247, 201, 72, 0.35)';
+                    mark.style.borderRadius = '2px';
+                    range.surroundContents(mark);
+                } catch (e) {
+                    console.warn('[DualSpine] Highlight wrap failed for node:', e);
+                }
             }
         }
     };
@@ -579,6 +576,66 @@
             _tapOverlay = null;
         }
     }
+
+    // ─── Color Dot Strip (shown after tapping Highlight) ───────────
+
+    var _dotStrip = null;
+
+    /**
+     * Show color dot strip below the current selection.
+     * Called from Swift when user taps "Highlight" in the system menu.
+     */
+    window.__dualSpine_showColorPicker = function() {
+        _hideDotStrip();
+
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return;
+
+        var colors = [
+            { hex: '#F7C948', name: 'Yellow' },
+            { hex: '#4DB6AC', name: 'Green' },
+            { hex: '#64B5F6', name: 'Blue' },
+            { hex: '#FF8A65', name: 'Pink' },
+            { hex: '#BA68C8', name: 'Purple' }
+        ];
+
+        _dotStrip = document.createElement('div');
+        _dotStrip.id = 'dualspine-dot-strip';
+
+        var totalWidth = colors.length * 28 + (colors.length - 1) * 8;
+        var left = Math.max(8, rect.left + rect.width / 2 - totalWidth / 2);
+        if (left + totalWidth > window.innerWidth - 8) left = window.innerWidth - totalWidth - 8;
+        var top = rect.bottom + 6;
+        if (top + 28 > window.innerHeight) top = rect.top - 34;
+
+        _dotStrip.style.cssText = 'position:fixed;z-index:99999;display:flex;gap:8px;top:' + top + 'px;left:' + left + 'px;pointer-events:auto;';
+
+        colors.forEach(function(c) {
+            var dot = document.createElement('button');
+            dot.style.cssText = 'width:24px;height:24px;border-radius:12px;border:none;padding:0;cursor:pointer;background:' + c.hex + ';box-shadow:0 1px 3px rgba(0,0,0,0.3);-webkit-tap-highlight-color:transparent;';
+            dot.addEventListener('click', function(e) {
+                e.preventDefault(); e.stopPropagation();
+                postMessage('highlightRequest', { tintHex: c.hex });
+                _hideDotStrip();
+            });
+            _dotStrip.appendChild(dot);
+        });
+
+        document.body.appendChild(_dotStrip);
+    };
+
+    function _hideDotStrip() {
+        if (_dotStrip) { _dotStrip.remove(); _dotStrip = null; }
+    }
+
+    window.addEventListener('scroll', _hideDotStrip, { passive: true });
+    document.addEventListener('touchstart', function(e) {
+        if (_dotStrip && !_dotStrip.contains(e.target)) _hideDotStrip();
+    }, { passive: true });
 
     // ─── Content Ready ───────────────────────────────────────────────
 

@@ -75,7 +75,7 @@ public struct EPUBReaderView: UIViewRepresentable {
 
         let coordinator = context.coordinator
         webView.onHighlightAction = { [weak coordinator] in
-            coordinator?.handleHighlightColorAction(tintHex: HighlightTint.defaultHex)
+            coordinator?.showColorPicker()
         }
         webView.onRemoveHighlight = { [weak coordinator] highlightID in
             coordinator?.handleRemoveHighlightMenuAction(highlightID: highlightID)
@@ -149,7 +149,13 @@ public struct EPUBReaderView: UIViewRepresentable {
             }
         }
 
-        /// Called when user taps a highlight color in the system edit menu.
+        /// Show the JS color dot strip below the selection.
+        func showColorPicker() {
+            guard let webView else { return }
+            webView.evaluateJavaScript("window.__dualSpine_showColorPicker()")
+        }
+
+        /// Called when user taps a color dot (from JS) or directly with a tint.
         func handleHighlightColorAction(tintHex: String) {
             if let selection = lastSelection {
                 parent.onHighlightRequest?(selection, tintHex)
