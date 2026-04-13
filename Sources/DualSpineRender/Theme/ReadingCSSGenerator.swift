@@ -36,20 +36,29 @@ public enum ReadingCSSGenerator {
             --ds-muted: \(theme.mutedTextColor);
         }
 
-        html {
-            font-size: \(String(format: "%.1f", s.fontSize))px\(layoutImp);
-        }
-
         html, body {
             background-color: \(theme.backgroundColor)\(layoutImp);
             color: \(theme.textColor)\(imp);
             font-family: \(fontFamily)\(imp);
+            font-size: \(String(format: "%.1f", s.fontSize))px\(imp);
             line-height: \(String(format: "%.3f", lineHeight))\(imp);
             text-align: \(s.textAlignment.cssValue)\(imp);
             -webkit-text-size-adjust: 100%;
             word-wrap: break-word;
             overflow-wrap: break-word;
             transition: background-color 0.26s ease, color 0.26s ease;
+        }
+
+        /* Force typography on all text-containing elements to override publisher CSS */
+        body, body p, body div, body span, body li, body td, body th,
+        body h1, body h2, body h3, body h4, body h5, body h6, body blockquote {
+            font-family: \(fontFamily)\(imp);
+            color: \(theme.textColor)\(imp);
+        }
+
+        body p, body div, body li, body td, body th, body blockquote, body span {
+            line-height: \(String(format: "%.3f", lineHeight))\(imp);
+            text-align: \(s.textAlignment.cssValue)\(imp);
         }
 
         body {
