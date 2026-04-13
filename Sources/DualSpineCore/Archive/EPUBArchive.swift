@@ -61,14 +61,20 @@ public final class EPUBArchive {
     private static func normalizePath(_ path: String) -> String {
         var p = path
         if p.hasPrefix("/") { p = String(p.dropFirst()) }
-        // Resolve relative components (e.g. "../Styles/style.css" from "Text/chapter1.xhtml")
-        // URLComponents handles this for us
+
+        // Decode percent-encoded paths (manifest hrefs may be URL-encoded,
+        // but ZIP entry names use literal characters)
+        if p.contains("%") {
+            p = p.removingPercentEncoding ?? p
+        }
+
+        // Resolve relative components (e.g. "../Styles/style.css")
         if p.contains("..") || p.contains("./") {
             let components = p.split(separator: "/")
             var resolved: [String] = []
             for component in components {
                 if component == ".." {
-                    resolved.removeLast()
+                    if !resolved.isEmpty { resolved.removeLast() }
                 } else if component != "." {
                     resolved.append(String(component))
                 }

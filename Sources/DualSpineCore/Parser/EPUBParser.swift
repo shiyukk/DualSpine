@@ -125,6 +125,7 @@ public enum EPUBParser {
         var result = ""
         result.reserveCapacity(html.count / 2)
         var insideTag = false
+        var insideHead = false
         var insideScript = false
         var insideStyle = false
         var tagBuffer = ""
@@ -140,16 +141,28 @@ public enum EPUBParser {
                 if char == ">" {
                     insideTag = false
                     let tag = tagBuffer.lowercased()
+                        .trimmingCharacters(in: .whitespaces)
+
+                    // Track <head>...</head> to skip metadata, styles, links
+                    if tag.hasPrefix("head") && !tag.hasPrefix("header") { insideHead = true }
+                    if tag.hasPrefix("/head") { insideHead = false; continue }
+
                     if tag.hasPrefix("script") { insideScript = true }
                     if tag.hasPrefix("/script") { insideScript = false }
                     if tag.hasPrefix("style") { insideStyle = true }
                     if tag.hasPrefix("/style") { insideStyle = false }
+
                     // Block elements get a newline
-                    if tag.hasPrefix("p") || tag.hasPrefix("/p")
+                    let isBlock = tag.hasPrefix("p") || tag.hasPrefix("/p")
                         || tag.hasPrefix("br") || tag.hasPrefix("div")
                         || tag.hasPrefix("/div") || tag.hasPrefix("h")
                         || tag.hasPrefix("/h") || tag.hasPrefix("li")
-                        || tag.hasPrefix("/li") {
+                        || tag.hasPrefix("/li") || tag.hasPrefix("tr")
+                        || tag.hasPrefix("/tr") || tag.hasPrefix("blockquote")
+                        || tag.hasPrefix("/blockquote") || tag.hasPrefix("section")
+                        || tag.hasPrefix("/section")
+
+                    if isBlock && !insideHead {
                         result += "\n"
                     }
                 } else {
@@ -158,18 +171,99 @@ public enum EPUBParser {
                 continue
             }
 
-            if !insideScript && !insideStyle {
+            if !insideScript && !insideStyle && !insideHead {
                 result.append(char)
             }
         }
 
-        // Normalize whitespace: collapse runs of spaces, preserve newlines
-        return result
+        // Decode HTML entities
+        var decoded = result
             .replacingOccurrences(of: "&nbsp;", with: " ")
             .replacingOccurrences(of: "&amp;", with: "&")
             .replacingOccurrences(of: "&lt;", with: "<")
             .replacingOccurrences(of: "&gt;", with: ">")
             .replacingOccurrences(of: "&quot;", with: "\"")
             .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&apos;", with: "'")
+            .replacingOccurrences(of: "&mdash;", with: "—")
+            .replacingOccurrences(of: "&ndash;", with: "–")
+            .replacingOccurrences(of: "&hellip;", with: "…")
+            .replacingOccurrences(of: "&lsquo;", with: "\u{2018}")
+            .replacingOccurrences(of: "&rsquo;", with: "\u{2019}")
+            .replacingOccurrences(of: "&ldquo;", with: "\u{201C}")
+            .replacingOccurrences(of: "&rdquo;", with: "\u{201D}")
+
+        // Decode numeric character references (&#13; &#160; &#x20; etc.)
+        decoded = decodeNumericEntities(decoded)
+
+        // Collapse multiple blank lines into one, trim leading/trailing whitespace per line
+        let lines = decoded.components(separatedBy: .newlines)
+        var cleaned: [String] = []
+        var lastWasEmpty = false
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                if !lastWasEmpty && !cleaned.isEmpty {
+                    cleaned.append("")
+                    lastWasEmpty = true
+                }
+            } else {
+                cleaned.append(trimmed)
+                lastWasEmpty = false
+            }
+        }
+
+        return cleaned.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Decode `&#123;` and `&#x1F;` style numeric entities.
+    private static func decodeNumericEntities(_ text: String) -> String {
+        var result = ""
+        result.reserveCapacity(text.count)
+        var i = text.startIndex
+
+        while i < text.endIndex {
+            if text[i] == "&", text.index(after: i) < text.endIndex, text[text.index(after: i)] == "#" {
+                // Found &#...;
+                let start = i
+                i = text.index(i, offsetBy: 2) // skip &#
+                var numStr = ""
+                let isHex = i < text.endIndex && (text[i] == "x" || text[i] == "X")
+                if isHex { i = text.index(after: i) }
+
+                while i < text.endIndex && text[i] != ";" {
+                    numStr.append(text[i])
+                    i = text.index(after: i)
+                }
+
+                if i < text.endIndex && text[i] == ";" {
+                    i = text.index(after: i) // skip ;
+                    let codePoint = isHex
+                        ? UInt32(numStr, radix: 16)
+                        : UInt32(numStr, radix: 10)
+
+                    if let cp = codePoint, let scalar = Unicode.Scalar(cp) {
+                        // Skip control characters (&#13; = CR, &#10; = LF treated as space)
+                        if cp == 13 || cp == 10 {
+                            result.append("\n")
+                        } else if cp < 32 {
+                            // skip other control chars
+                        } else {
+                            result.append(Character(scalar))
+                        }
+                    } else {
+                        result.append(contentsOf: text[start..<i])
+                    }
+                } else {
+                    result.append(contentsOf: text[start..<i])
+                }
+            } else {
+                result.append(text[i])
+                i = text.index(after: i)
+            }
+        }
+
+        return result
     }
 }
