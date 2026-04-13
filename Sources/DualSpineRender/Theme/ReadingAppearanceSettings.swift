@@ -207,6 +207,17 @@ public enum ReadingPageWidth: String, Sendable, Hashable, Codable, CaseIterable,
         }
     }
 
+    /// Fraction of viewport width used by this preset.
+    /// Produces visible differences on any screen size.
+    public var viewportFraction: Double {
+        switch self {
+        case .book: return 0.72      // Narrow, comfortable for long reading
+        case .balanced: return 0.84  // Default — slight margin each side
+        case .wide: return 0.93      // Near full width
+        case .full: return 1.00      // Edge-to-edge
+        }
+    }
+
     /// Best-match preset from a slider value.
     public static func from(sliderValue: Double) -> ReadingPageWidth {
         if sliderValue < 0.17 { return .book }

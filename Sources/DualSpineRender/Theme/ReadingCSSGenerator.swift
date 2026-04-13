@@ -22,7 +22,8 @@ public enum ReadingCSSGenerator {
         let lineHeight = computeLineHeight(s)
         let blockSpacing = computeBlockSpacing(s)
         let headingScale = computeHeadingScale()
-        let contentWidth = computeContentWidth(s, containerWidth: containerWidth)
+        let widthPreset = ReadingPageWidth.from(sliderValue: s.pageWidthValue)
+        let widthPercent = Int(widthPreset.viewportFraction * 100)
         let fontFamily = s.fontStyle.cssFontFamily
 
         return """
@@ -52,10 +53,12 @@ public enum ReadingCSSGenerator {
         }
 
         body {
-            max-width: \(String(format: "%.1f", contentWidth))px\(layoutImp);
+            width: \(widthPercent)%\(layoutImp);
+            max-width: 100%\(layoutImp);
             margin-left: auto\(layoutImp);
             margin-right: auto\(layoutImp);
-            padding: 0 16px\(layoutImp);
+            padding: 0 \(widthPreset == .full ? 12 : 8)px\(layoutImp);
+            box-sizing: border-box\(layoutImp);
         }
 
         a, a:visited {
