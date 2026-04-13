@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var spineIndex = 0
     @State private var errorMessage: String?
     @State private var appearance = ReadingAppearanceSettings()
+    @State private var hasBookOverride = false
     @State private var showTOC = false
     @State private var showAppearance = false
     @State private var showSearch = false
@@ -20,6 +21,11 @@ struct ContentView: View {
 
     private let epubPath = "/Users/shiyuliu/Documents/DualSpine/books"
     private let positionStore = PositionStore()
+    private let appearanceStore = AppearanceStore()
+
+    private var currentBookID: String? {
+        document.map { $0.package.metadata.identifier ?? $0.title }
+    }
 
     var body: some View {
         NavigationStack {
@@ -50,6 +56,9 @@ struct ContentView: View {
                 onRemoveHighlightRequest: { id in highlights.removeAll { $0.id.uuidString == id } },
                 onProgressSave: { savePosition(document: document) }
             )
+            .onChange(of: appearance) { _, newValue in
+                persistAppearance(newValue)
+            }
         } else if let errorMessage {
             VStack(spacing: 16) {
                 Image(systemName: "exclamationmark.triangle").font(.largeTitle).foregroundStyle(.red)
@@ -87,9 +96,16 @@ struct ContentView: View {
 
     private var appearanceSheet: some View {
         NavigationStack {
-            AppearanceSettingsView(appearance: $appearance)
-                .navigationTitle("Appearance").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showAppearance = false } } }
+            AppearanceSettingsView(
+                appearance: $appearance,
+                hasBookOverride: Binding(
+                    get: { hasBookOverride },
+                    set: { toggleBookOverride(to: $0) }
+                ),
+                canShowScope: currentBookID != nil
+            )
+            .navigationTitle("Appearance").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showAppearance = false } } }
         }
         .presentationDetents([.medium, .large])
     }
@@ -124,7 +140,37 @@ struct ContentView: View {
             if let saved = positionStore.load(forBook: bookID) {
                 spineIndex = saved.spineIndex; currentProgress = saved.overallProgress
             }
+
+            // Load appearance: use book override if present, otherwise global
+            hasBookOverride = appearanceStore.hasBookOverride(bookID: bookID)
+            appearance = appearanceStore.effectiveSettings(forBook: bookID)
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func persistAppearance(_ settings: ReadingAppearanceSettings) {
+        guard let bookID = currentBookID else {
+            appearanceStore.saveGlobal(settings)
+            return
+        }
+        if hasBookOverride {
+            appearanceStore.saveBookOverride(bookID: bookID, settings: settings)
+        } else {
+            appearanceStore.saveGlobal(settings)
+        }
+    }
+
+    private func toggleBookOverride(to isOn: Bool) {
+        guard let bookID = currentBookID else { return }
+        if isOn {
+            // Start per-book override with current settings
+            hasBookOverride = true
+            appearanceStore.saveBookOverride(bookID: bookID, settings: appearance)
+        } else {
+            // Remove override, revert to global
+            hasBookOverride = false
+            appearanceStore.removeBookOverride(bookID: bookID)
+            appearance = appearanceStore.loadGlobal()
+        }
     }
 
     private func savePosition(document: EPUBDocument) {
@@ -240,6 +286,8 @@ struct ReaderContentView: View {
 
 struct AppearanceSettingsView: View {
     @Binding var appearance: ReadingAppearanceSettings
+    @Binding var hasBookOverride: Bool
+    let canShowScope: Bool
 
     /// Infer the current preset from theme + font combination.
     private var presetBinding: Binding<ReadingAppearancePreset> {
@@ -260,6 +308,17 @@ struct AppearanceSettingsView: View {
 
     var body: some View {
         List {
+            // Scope — per-book override toggle
+            if canShowScope {
+                Section {
+                    Toggle("Custom for This Book", isOn: $hasBookOverride)
+                } footer: {
+                    Text(hasBookOverride
+                         ? "Changes apply only to this book. Turn off to use global settings."
+                         : "Using global settings. Turn on to customize this book only.")
+                }
+            }
+
             // Presets
             Section("Presets") {
                 Picker("Preset", selection: presetBinding) {
