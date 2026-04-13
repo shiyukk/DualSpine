@@ -617,24 +617,30 @@
         var top = rect.bottom + 6;
         if (top + barHeight > window.innerHeight) top = rect.top - barHeight - 6;
 
-        // Read the actual theme background to adapt the bar
-        var bgColor = getComputedStyle(document.documentElement).getPropertyValue('--ds-bg').trim()
-            || getComputedStyle(document.body).backgroundColor
-            || '#111111';
+        // Read the actual rendered background color from the body element
+        var computedBg = getComputedStyle(document.body).backgroundColor;
+        var bgColor = computedBg || '#111111';
 
         // Compute luminance to decide light vs dark bar
         var lum = _colorLuminance(bgColor);
         var isDark = lum < 0.5;
 
-        // Derive bar colors from the theme
+        // Build semi-transparent bar background derived from theme
+        var base = _parseColor(bgColor);
         var barBg, barShadow;
         if (isDark) {
-            // Lighten the theme background slightly for the bar
-            barBg = _adjustBrightness(bgColor, 0.15);
-            barShadow = '0 2px 16px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(255,255,255,0.06)';
+            // Lighten the base and make translucent
+            var r = Math.min(255, base.r + 40);
+            var g = Math.min(255, base.g + 40);
+            var b = Math.min(255, base.b + 40);
+            barBg = 'rgba(' + r + ',' + g + ',' + b + ',0.85)';
+            barShadow = '0 2px 16px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(255,255,255,0.08)';
         } else {
-            // Darken the theme background slightly, or use white overlay
-            barBg = _adjustBrightness(bgColor, -0.05);
+            // Slightly darken the base and make translucent
+            var r = Math.max(0, base.r - 8);
+            var g = Math.max(0, base.g - 8);
+            var b = Math.max(0, base.b - 8);
+            barBg = 'rgba(' + r + ',' + g + ',' + b + ',0.88)';
             barShadow = '0 2px 16px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.08)';
         }
 
@@ -649,9 +655,7 @@
             'pointer-events:auto',
             'border-radius:14px',
             'background:' + barBg,
-            'box-shadow:' + barShadow,
-            '-webkit-backdrop-filter:blur(24px)',
-            'backdrop-filter:blur(24px)'
+            'box-shadow:' + barShadow
         ].join(';');
 
         colors.forEach(function(c) {
