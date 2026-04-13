@@ -617,9 +617,26 @@
         var top = rect.bottom + 6;
         if (top + barHeight > window.innerHeight) top = rect.top - barHeight - 6;
 
-        var isDark = false;
-        var bg = document.body.style.backgroundColor || '';
-        if (bg.includes('#0') || bg.includes('#1') || bg.includes('rgb(1')) isDark = true;
+        // Read the actual theme background to adapt the bar
+        var bgColor = getComputedStyle(document.documentElement).getPropertyValue('--ds-bg').trim()
+            || getComputedStyle(document.body).backgroundColor
+            || '#111111';
+
+        // Compute luminance to decide light vs dark bar
+        var lum = _colorLuminance(bgColor);
+        var isDark = lum < 0.5;
+
+        // Derive bar colors from the theme
+        var barBg, barShadow;
+        if (isDark) {
+            // Lighten the theme background slightly for the bar
+            barBg = _adjustBrightness(bgColor, 0.15);
+            barShadow = '0 2px 16px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(255,255,255,0.06)';
+        } else {
+            // Darken the theme background slightly, or use white overlay
+            barBg = _adjustBrightness(bgColor, -0.05);
+            barShadow = '0 2px 16px rgba(0,0,0,0.12), 0 0 0 0.5px rgba(0,0,0,0.08)';
+        }
 
         _dotStrip.style.cssText = [
             'position:fixed', 'z-index:99999',
@@ -631,8 +648,8 @@
             'top:' + top + 'px', 'left:' + left + 'px',
             'pointer-events:auto',
             'border-radius:14px',
-            'background:' + (isDark ? 'rgba(58,58,60,0.95)' : 'rgba(255,255,255,0.98)'),
-            'box-shadow:0 2px 16px rgba(0,0,0,' + (isDark ? '0.5' : '0.18') + '), 0 0 0 0.5px rgba(0,0,0,0.08)',
+            'background:' + barBg,
+            'box-shadow:' + barShadow,
             '-webkit-backdrop-filter:blur(24px)',
             'backdrop-filter:blur(24px)'
         ].join(';');
@@ -695,6 +712,53 @@
             clearTimeout(timer);
             timer = setTimeout(fn, delay);
         };
+    }
+
+    /**
+     * Parse a CSS color string (hex, rgb, rgba) into {r, g, b} 0-255.
+     */
+    function _parseColor(str) {
+        str = (str || '').trim();
+        // hex
+        if (str.charAt(0) === '#') {
+            var hex = str.substring(1);
+            if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+            return {
+                r: parseInt(hex.substring(0,2), 16),
+                g: parseInt(hex.substring(2,4), 16),
+                b: parseInt(hex.substring(4,6), 16)
+            };
+        }
+        // rgb(a)
+        var m = str.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+        if (m) return { r: parseInt(m[1]), g: parseInt(m[2]), b: parseInt(m[3]) };
+        // fallback dark
+        return { r: 17, g: 17, b: 17 };
+    }
+
+    /**
+     * Compute relative luminance (0=black, 1=white) from a CSS color string.
+     */
+    function _colorLuminance(colorStr) {
+        var c = _parseColor(colorStr);
+        // sRGB luminance
+        return (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255;
+    }
+
+    /**
+     * Adjust brightness of a CSS color. amount: -1 to 1 (negative=darken, positive=lighten).
+     * Returns an rgb() string.
+     */
+    function _adjustBrightness(colorStr, amount) {
+        var c = _parseColor(colorStr);
+        var adjust = function(v) {
+            if (amount > 0) {
+                return Math.min(255, Math.round(v + (255 - v) * amount));
+            } else {
+                return Math.max(0, Math.round(v * (1 + amount)));
+            }
+        };
+        return 'rgb(' + adjust(c.r) + ',' + adjust(c.g) + ',' + adjust(c.b) + ')';
     }
 
 })();
