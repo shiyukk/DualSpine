@@ -98,6 +98,38 @@ public final class EPUBBridgeController: NSObject, WKScriptMessageHandler {
         webView.evaluateJavaScript("window.__dualSpine_scrollToProgress(\(progress))")
     }
 
+    // MARK: - Pagination
+
+    /// Enable paginated (column) layout with tap-to-turn zones.
+    public func enablePagination(gap: Int = 40, in webView: WKWebView) {
+        webView.evaluateJavaScript("window.__dualSpine_enablePagination(\(gap))")
+    }
+
+    /// Disable pagination and return to scroll layout.
+    public func disablePagination(in webView: WKWebView) {
+        webView.evaluateJavaScript("window.__dualSpine_disablePagination()")
+    }
+
+    /// Navigate to a specific page (0-indexed) in paginated mode.
+    public func goToPage(_ index: Int, in webView: WKWebView) {
+        webView.evaluateJavaScript("window.__dualSpine_goToPage(\(index))")
+    }
+
+    /// Navigate to next page. Returns at-end signal if already on last page.
+    public func nextPage(in webView: WKWebView) {
+        webView.evaluateJavaScript("window.__dualSpine_nextPage()")
+    }
+
+    /// Navigate to previous page. Returns at-start signal if already on first page.
+    public func previousPage(in webView: WKWebView) {
+        webView.evaluateJavaScript("window.__dualSpine_previousPage()")
+    }
+
+    /// Navigate to a progress percentage in paginated mode.
+    public func goToProgress(_ progress: Double, in webView: WKWebView) {
+        webView.evaluateJavaScript("window.__dualSpine_goToProgress(\(progress))")
+    }
+
     /// Get surrounding text context for the current selection (for highlight anchoring).
     /// Returns a dictionary with `textBefore`, `textAfter`, `rangeStart`, `rangeEnd`.
     public func getSelectionContext(in webView: WKWebView) async -> SelectionContext? {

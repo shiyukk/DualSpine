@@ -312,6 +312,236 @@
         };
     };
 
+    // ─── Pagination (Column Layout) ─────────────────────────────────
+
+    var _pagination = {
+        enabled: false,
+        currentPage: 0,
+        totalPages: 1,
+        pageWidth: 0,
+        gap: 40
+    };
+
+    /**
+     * Enable paginated (column) layout.
+     * @param {number} gap - Gap between pages in pixels (default 40).
+     */
+    window.__dualSpine_enablePagination = function(gap) {
+        _pagination.enabled = true;
+        _pagination.gap = gap || 40;
+        _pagination.currentPage = 0;
+
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        _pagination.pageWidth = vw;
+
+        // Inject pagination CSS
+        let style = document.getElementById('dualspine-pagination');
+        if (!style) {
+            style = document.createElement('style');
+            style.id = 'dualspine-pagination';
+            document.head.appendChild(style);
+        }
+
+        const colWidth = vw - _pagination.gap;
+        style.textContent = `
+            html {
+                height: ${vh}px !important;
+                overflow: hidden !important;
+            }
+            body {
+                height: ${vh - 40}px !important;
+                margin: 20px 0 !important;
+                padding: 0 ${_pagination.gap / 2}px !important;
+                column-width: ${colWidth}px !important;
+                column-gap: ${_pagination.gap}px !important;
+                column-fill: auto !important;
+                overflow: hidden !important;
+                box-sizing: border-box !important;
+                -webkit-transform: translateX(0px);
+                transform: translateX(0px);
+                transition: transform 0.25s ease-out;
+            }
+        `;
+
+        // Disable vertical scrolling
+        document.documentElement.style.overflow = 'hidden';
+        document.body.style.overflow = 'hidden';
+        window.scrollTo(0, 0);
+
+        // Calculate pages after layout settles
+        requestAnimationFrame(function() {
+            requestAnimationFrame(function() {
+                _recalcPages();
+                _goToPage(0);
+                _reportPageChange();
+            });
+        });
+
+        // Set up tap-to-turn zones
+        _setupTapZones();
+    };
+
+    /**
+     * Disable pagination, return to scroll layout.
+     */
+    window.__dualSpine_disablePagination = function() {
+        _pagination.enabled = false;
+        _pagination.currentPage = 0;
+
+        const style = document.getElementById('dualspine-pagination');
+        if (style) style.remove();
+
+        document.documentElement.style.overflow = '';
+        document.body.style.overflow = '';
+        document.body.style.transform = '';
+        document.body.style.webkitTransform = '';
+
+        _removeTapZones();
+        postMessage('paginationDisabled');
+    };
+
+    /**
+     * Navigate to a specific page (0-indexed).
+     */
+    window.__dualSpine_goToPage = function(pageIndex) {
+        if (!_pagination.enabled) return;
+        _goToPage(pageIndex);
+        _reportPageChange();
+    };
+
+    /**
+     * Go to next page. Returns true if turned, false if at end.
+     */
+    window.__dualSpine_nextPage = function() {
+        if (!_pagination.enabled) return false;
+        if (_pagination.currentPage >= _pagination.totalPages - 1) {
+            postMessage('paginationAtEnd');
+            return false;
+        }
+        _goToPage(_pagination.currentPage + 1);
+        _reportPageChange();
+        return true;
+    };
+
+    /**
+     * Go to previous page. Returns true if turned, false if at beginning.
+     */
+    window.__dualSpine_previousPage = function() {
+        if (!_pagination.enabled) return false;
+        if (_pagination.currentPage <= 0) {
+            postMessage('paginationAtStart');
+            return false;
+        }
+        _goToPage(_pagination.currentPage - 1);
+        _reportPageChange();
+        return true;
+    };
+
+    /**
+     * Get current pagination state.
+     */
+    window.__dualSpine_getPaginationState = function() {
+        return {
+            enabled: _pagination.enabled,
+            currentPage: _pagination.currentPage,
+            totalPages: _pagination.totalPages,
+            pageWidth: _pagination.pageWidth
+        };
+    };
+
+    /**
+     * Navigate to a progress percentage (0.0-1.0) in paginated mode.
+     */
+    window.__dualSpine_goToProgress = function(progress) {
+        if (!_pagination.enabled) {
+            window.__dualSpine_scrollToProgress(progress);
+            return;
+        }
+        _recalcPages();
+        const targetPage = Math.floor(progress * _pagination.totalPages);
+        _goToPage(Math.min(targetPage, _pagination.totalPages - 1));
+        _reportPageChange();
+    };
+
+    function _recalcPages() {
+        if (!_pagination.enabled) return;
+        const scrollW = document.body.scrollWidth;
+        const pw = _pagination.pageWidth;
+        _pagination.totalPages = Math.max(Math.ceil(scrollW / pw), 1);
+    }
+
+    function _goToPage(index) {
+        index = Math.max(0, Math.min(index, _pagination.totalPages - 1));
+        _pagination.currentPage = index;
+        const offset = -index * _pagination.pageWidth;
+        document.body.style.transform = 'translateX(' + offset + 'px)';
+        document.body.style.webkitTransform = 'translateX(' + offset + 'px)';
+    }
+
+    function _reportPageChange() {
+        postMessage('pageChanged', {
+            currentPage: _pagination.currentPage,
+            totalPages: _pagination.totalPages,
+            progress: _pagination.totalPages > 1
+                ? _pagination.currentPage / (_pagination.totalPages - 1)
+                : 0
+        });
+    }
+
+    // ─── Tap-to-Turn Zones ───────────────────────────────────────────
+
+    var _tapOverlay = null;
+
+    function _setupTapZones() {
+        _removeTapZones();
+
+        _tapOverlay = document.createElement('div');
+        _tapOverlay.id = 'dualspine-tap-overlay';
+        _tapOverlay.style.cssText = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 99998; pointer-events: none;
+        `;
+
+        // Left zone (previous page) — 25% of screen width
+        const leftZone = document.createElement('div');
+        leftZone.style.cssText = `
+            position: absolute; top: 0; left: 0; width: 25%; height: 100%;
+            pointer-events: auto; -webkit-tap-highlight-color: transparent;
+        `;
+        leftZone.addEventListener('click', function(e) {
+            // Don't interfere with text selection
+            if (window.getSelection().toString().length > 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            window.__dualSpine_previousPage();
+        });
+
+        // Right zone (next page) — 25% of screen width
+        const rightZone = document.createElement('div');
+        rightZone.style.cssText = `
+            position: absolute; top: 0; right: 0; width: 25%; height: 100%;
+            pointer-events: auto; -webkit-tap-highlight-color: transparent;
+        `;
+        rightZone.addEventListener('click', function(e) {
+            if (window.getSelection().toString().length > 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            window.__dualSpine_nextPage();
+        });
+
+        _tapOverlay.appendChild(leftZone);
+        _tapOverlay.appendChild(rightZone);
+        document.body.appendChild(_tapOverlay);
+    }
+
+    function _removeTapZones() {
+        if (_tapOverlay) {
+            _tapOverlay.remove();
+            _tapOverlay = null;
+        }
+    }
+
     // ─── Content Ready ───────────────────────────────────────────────
 
     function signalContentReady() {

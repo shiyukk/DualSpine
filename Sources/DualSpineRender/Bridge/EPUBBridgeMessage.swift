@@ -22,6 +22,15 @@ public enum EPUBBridgeMessage: Sendable {
     /// An image in the content was tapped (for zoom/inspection).
     case imageTapped(ImagePayload)
 
+    /// Page changed in paginated mode.
+    case pageChanged(PagePayload)
+
+    /// User tapped previous at the first page of a spine item.
+    case paginationAtStart
+
+    /// User tapped next at the last page of a spine item.
+    case paginationAtEnd
+
     // MARK: - Payloads
 
     public struct SelectionPayload: Codable, Sendable {
@@ -63,6 +72,12 @@ public enum EPUBBridgeMessage: Sendable {
         public let alt: String?
         public let naturalWidth: Int
         public let naturalHeight: Int
+    }
+
+    public struct PagePayload: Codable, Sendable {
+        public let currentPage: Int
+        public let totalPages: Int
+        public let progress: Double
     }
 
     // MARK: - Parsing
@@ -107,6 +122,21 @@ public enum EPUBBridgeMessage: Sendable {
                 return nil
             }
             return .imageTapped(payload)
+
+        case "pageChanged":
+            guard let payload = decodePayload(PagePayload.self, from: dict["payload"]) else {
+                return nil
+            }
+            return .pageChanged(payload)
+
+        case "paginationAtStart":
+            return .paginationAtStart
+
+        case "paginationAtEnd":
+            return .paginationAtEnd
+
+        case "paginationDisabled":
+            return nil
 
         default:
             return nil

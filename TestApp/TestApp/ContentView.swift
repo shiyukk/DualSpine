@@ -17,6 +17,9 @@ struct ContentView: View {
     @State private var lastSelection: EPUBBridgeMessage.SelectionPayload?
     @State private var highlights: [HighlightRecord] = []
     @State private var showHighlightPicker = false
+    @State private var isPaginated = false
+    @State private var currentPage = 0
+    @State private var totalPages = 1
 
     private let epubPath = "/Users/shiyuliu/Documents/DualSpine/books"
     private let positionStore = PositionStore()
@@ -43,8 +46,11 @@ struct ContentView: View {
                 resourceActor: resourceActor,
                 spineIndex: $spineIndex,
                 currentTheme: currentTheme,
+                isPaginated: isPaginated,
                 currentProgress: $currentProgress,
                 lastSelection: $lastSelection,
+                currentPage: $currentPage,
+                totalPages: $totalPages,
                 highlights: highlights,
                 onHighlightRequest: { showHighlightPicker = true },
                 onProgressSave: { savePosition(document: document) }
@@ -93,7 +99,7 @@ struct ContentView: View {
 
     private var themeSheet: some View {
         NavigationStack {
-            ThemePickerView(currentTheme: $currentTheme)
+            ThemePickerView(currentTheme: $currentTheme, isPaginated: $isPaginated)
                 .navigationTitle("Appearance")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -212,8 +218,11 @@ struct ReaderContentView: View {
     let resourceActor: EPUBResourceActor
     @Binding var spineIndex: Int
     let currentTheme: EPUBTheme
+    let isPaginated: Bool
     @Binding var currentProgress: Double
     @Binding var lastSelection: EPUBBridgeMessage.SelectionPayload?
+    @Binding var currentPage: Int
+    @Binding var totalPages: Int
     let highlights: [HighlightRecord]
     let onHighlightRequest: () -> Void
     let onProgressSave: () -> Void
@@ -225,6 +234,7 @@ struct ReaderContentView: View {
                 resourceActor: resourceActor,
                 spineIndex: $spineIndex,
                 themeCSS: currentTheme.toCSS(),
+                isPaginated: isPaginated,
                 onMessage: { handleMessage($0) }
             )
 
@@ -274,8 +284,11 @@ struct ReaderContentView: View {
             Spacer()
 
             VStack(spacing: 2) {
-                Text("\(spineIndex + 1) / \(document.spineCount)").font(.caption)
-                Text("\(Int(currentProgress * 100))%").font(.caption2).foregroundStyle(.secondary)
+                if isPaginated {
+                    Text("Page \(currentPage + 1) of \(totalPages)").font(.caption)
+                }
+                Text("Ch \(spineIndex + 1)/\(document.spineCount) · \(Int(currentProgress * 100))%")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
 
             Spacer()
@@ -304,6 +317,14 @@ struct ReaderContentView: View {
         case .contentReady:
             currentProgress = ReadingPosition.computeOverallProgress(
                 spineIndex: spineIndex, chapterProgress: 0, totalSpineItems: document.spineCount
+            )
+            onProgressSave()
+        case .pageChanged(let payload):
+            currentPage = payload.currentPage
+            totalPages = payload.totalPages
+            currentProgress = ReadingPosition.computeOverallProgress(
+                spineIndex: spineIndex, chapterProgress: payload.progress,
+                totalSpineItems: document.spineCount
             )
             onProgressSave()
         default:
@@ -360,6 +381,7 @@ struct TOCRowView: View {
 
 struct ThemePickerView: View {
     @Binding var currentTheme: EPUBTheme
+    @Binding var isPaginated: Bool
 
     var body: some View {
         List {
@@ -367,6 +389,14 @@ struct ThemePickerView: View {
                 ForEach(EPUBTheme.allPresets) { theme in
                     themeRow(theme)
                 }
+            }
+            Section("Layout") {
+                Toggle("Paginated", isOn: $isPaginated)
+                Text(isPaginated
+                     ? "Tap left/right edges to turn pages"
+                     : "Scroll vertically through content")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Font Size: \(currentTheme.fontSize)px") {
                 fontSizeControl

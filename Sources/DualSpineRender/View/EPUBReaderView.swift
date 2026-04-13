@@ -22,6 +22,7 @@ public struct EPUBReaderView: UIViewRepresentable {
     let resourceActor: EPUBResourceActor
     @Binding var spineIndex: Int
     var themeCSS: String?
+    var isPaginated: Bool
     var onMessage: ((EPUBBridgeMessage) -> Void)?
 
     public init(
@@ -29,12 +30,14 @@ public struct EPUBReaderView: UIViewRepresentable {
         resourceActor: EPUBResourceActor,
         spineIndex: Binding<Int>,
         themeCSS: String? = nil,
+        isPaginated: Bool = false,
         onMessage: ((EPUBBridgeMessage) -> Void)? = nil
     ) {
         self.document = document
         self.resourceActor = resourceActor
         self._spineIndex = spineIndex
         self.themeCSS = themeCSS
+        self.isPaginated = isPaginated
         self.onMessage = onMessage
     }
 
@@ -90,6 +93,16 @@ public struct EPUBReaderView: UIViewRepresentable {
             coordinator.currentThemeCSS = css
             coordinator.bridge.applyTheme(css, in: webView)
         }
+
+        // Toggle pagination mode
+        if isPaginated != coordinator.currentPaginated {
+            coordinator.currentPaginated = isPaginated
+            if isPaginated {
+                coordinator.bridge.enablePagination(in: webView)
+            } else {
+                coordinator.bridge.disablePagination(in: webView)
+            }
+        }
     }
 
     // MARK: - Coordinator
@@ -102,6 +115,7 @@ public struct EPUBReaderView: UIViewRepresentable {
         var schemeHandler: EPUBSchemeHandler?
         var currentSpineIndex: Int = -1
         var currentThemeCSS: String?
+        var currentPaginated: Bool = false
 
         init(parent: EPUBReaderView) {
             self.parent = parent
@@ -140,10 +154,34 @@ public struct EPUBReaderView: UIViewRepresentable {
                 if let css = currentThemeCSS, let webView {
                     bridge.applyTheme(css, in: webView)
                 }
+                // Apply pagination after theme
+                if currentPaginated, let webView {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(100))
+                        self.bridge.enablePagination(in: webView)
+                    }
+                }
 
             case .linkTapped(let payload):
                 if payload.isInternal {
                     handleInternalLink(payload.href)
+                }
+
+            case .paginationAtEnd:
+                // Auto-advance to next spine item
+                let nextIndex = currentSpineIndex + 1
+                if nextIndex < parent.document.package.spine.count {
+                    parent.spineIndex = nextIndex
+                    loadSpineItem(at: nextIndex)
+                }
+
+            case .paginationAtStart:
+                // Auto-advance to previous spine item (land on last page)
+                let prevIndex = currentSpineIndex - 1
+                if prevIndex >= 0 {
+                    parent.spineIndex = prevIndex
+                    loadSpineItem(at: prevIndex)
+                    // TODO: navigate to last page of previous spine item after load
                 }
 
             default:
