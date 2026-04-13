@@ -93,12 +93,40 @@ public final class EPUBBridgeController: NSObject, WKScriptMessageHandler {
         webView.evaluateJavaScript("window.__dualSpine_scrollToFragment('\(fragmentID)')")
     }
 
+    /// Scroll to a percentage of the document (for reading position restoration).
+    public func scrollToProgress(_ progress: Double, in webView: WKWebView) {
+        webView.evaluateJavaScript("window.__dualSpine_scrollToProgress(\(progress))")
+    }
+
+    /// Get surrounding text context for the current selection (for highlight anchoring).
+    /// Returns a dictionary with `textBefore`, `textAfter`, `rangeStart`, `rangeEnd`.
+    public func getSelectionContext(in webView: WKWebView) async -> SelectionContext? {
+        guard let result = try? await webView.evaluateJavaScript(
+            "window.__dualSpine_getSelectionContext()"
+        ) as? [String: Any] else { return nil }
+
+        return SelectionContext(
+            textBefore: result["textBefore"] as? String ?? "",
+            textAfter: result["textAfter"] as? String ?? "",
+            rangeStart: result["rangeStart"] as? Int ?? 0,
+            rangeEnd: result["rangeEnd"] as? Int ?? 0
+        )
+    }
+
     /// Set the current spine href for selection tracking context.
     public func setSpineHref(_ href: String, in webView: WKWebView) {
         webView.evaluateJavaScript("window.__dualSpine_spineHref = '\(href)'")
     }
 
     // MARK: - Types
+
+    /// Context around a text selection, used for stable highlight anchoring.
+    public struct SelectionContext: Sendable {
+        public let textBefore: String
+        public let textAfter: String
+        public let rangeStart: Int
+        public let rangeEnd: Int
+    }
 
     public struct HighlightCommand: Codable, Sendable {
         public let id: String

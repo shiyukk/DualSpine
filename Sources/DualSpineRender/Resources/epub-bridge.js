@@ -271,6 +271,47 @@
         }
     };
 
+    // ─── Scroll Position Restoration ─────────────────────────────────
+
+    /**
+     * Scroll to a percentage of the document (0.0–1.0).
+     * Used for restoring reading position.
+     * @param {number} progress - 0.0 to 1.0
+     */
+    window.__dualSpine_scrollToProgress = function(progress) {
+        const docHeight = document.documentElement.scrollHeight;
+        const viewportHeight = window.innerHeight;
+        const maxScroll = Math.max(docHeight - viewportHeight, 0);
+        const target = maxScroll * Math.min(Math.max(progress, 0), 1);
+        window.scrollTo({ top: target, behavior: 'instant' });
+    };
+
+    /**
+     * Get surrounding text context for a selection (for highlight anchoring).
+     * Returns { textBefore, textAfter } with ~50 chars each.
+     */
+    window.__dualSpine_getSelectionContext = function() {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+
+        const range = sel.getRangeAt(0);
+        const bodyText = document.body.textContent || '';
+
+        // Calculate character offset
+        const preRange = document.createRange();
+        preRange.selectNodeContents(document.body);
+        preRange.setEnd(range.startContainer, range.startOffset);
+        const startOffset = preRange.toString().length;
+        const endOffset = startOffset + sel.toString().length;
+
+        return {
+            textBefore: bodyText.substring(Math.max(0, startOffset - 50), startOffset),
+            textAfter: bodyText.substring(endOffset, endOffset + 50),
+            rangeStart: startOffset,
+            rangeEnd: endOffset
+        };
+    };
+
     // ─── Content Ready ───────────────────────────────────────────────
 
     function signalContentReady() {
