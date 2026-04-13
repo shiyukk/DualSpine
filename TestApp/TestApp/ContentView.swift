@@ -289,6 +289,14 @@ struct AppearanceSettingsView: View {
     @Binding var hasBookOverride: Bool
     let canShowScope: Bool
 
+    /// Map page width preset ↔ pageWidthValue slider.
+    private var pageWidthBinding: Binding<ReadingPageWidth> {
+        Binding(
+            get: { ReadingPageWidth.from(sliderValue: appearance.pageWidthValue) },
+            set: { appearance.pageWidthValue = $0.sliderValue }
+        )
+    }
+
     /// Infer the current preset from theme + font combination.
     private var presetBinding: Binding<ReadingAppearancePreset> {
         Binding(
@@ -373,12 +381,12 @@ struct AppearanceSettingsView: View {
                 // Reading mode
                 Toggle("Scroll Mode", isOn: $appearance.isScrollEnabled)
 
-                // Page width
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Page Width: \(ReadingPageWidth.from(sliderValue: appearance.pageWidthValue).displayName)")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Slider(value: $appearance.pageWidthValue, in: 0...1)
-                }
+                // Page width — 4 presets like ReBabel
+                Picker("Page Width", selection: pageWidthBinding) {
+                    ForEach(ReadingPageWidth.allCases) { preset in
+                        Text(preset.displayName).tag(preset)
+                    }
+                }.pickerStyle(.segmented)
 
                 // Publisher styles
                 Toggle("Publisher Styles", isOn: $appearance.usesPublisherStyles)
