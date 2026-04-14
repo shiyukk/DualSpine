@@ -105,10 +105,21 @@ public struct EPUBReaderView: UIViewRepresentable {
             coordinator.bridge.applyTheme(css, in: webView)
         }
 
-        if isPaginated != coordinator.currentPaginated {
+        // Handle mode changes: paginated toggle OR pagination mode switch (slide↔fade)
+        let modeChanged = isPaginated != coordinator.currentPaginated
+            || (isPaginated && paginationMode != coordinator.currentPaginationMode)
+        if modeChanged {
             coordinator.currentPaginated = isPaginated
+            coordinator.currentPaginationMode = paginationMode
             if isPaginated {
-                coordinator.bridge.enablePagination(mode: paginationMode, in: webView)
+                // Disable first to clean up CSS, then re-enable with new mode
+                coordinator.bridge.disablePagination(in: webView)
+                Task { @MainActor [weak coordinator] in
+                    try? await Task.sleep(for: .milliseconds(50))
+                    if let webView = coordinator?.webView {
+                        coordinator?.bridge.enablePagination(mode: paginationMode, in: webView)
+                    }
+                }
             } else {
                 coordinator.bridge.disablePagination(in: webView)
             }
@@ -141,6 +152,7 @@ public struct EPUBReaderView: UIViewRepresentable {
         var currentSpineIndex: Int = -1
         var currentThemeCSS: String?
         var currentPaginated: Bool = false
+        var currentPaginationMode: String = "slide"
         var appliedHighlights: [HighlightRecord] = []
         var lastSelection: EPUBBridgeMessage.SelectionPayload?
 

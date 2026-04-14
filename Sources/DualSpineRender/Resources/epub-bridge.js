@@ -444,6 +444,12 @@
         document.body.style.overflow = '';
         document.body.style.transform = '';
         document.body.style.webkitTransform = '';
+        document.body.style.opacity = '';
+        document.body.style.transition = '';
+        document.documentElement.style.height = '';
+        document.body.style.height = '';
+        document.body.style.margin = '';
+        document.body.style.padding = '';
 
         _removeTapZones();
         postMessage('paginationDisabled');
