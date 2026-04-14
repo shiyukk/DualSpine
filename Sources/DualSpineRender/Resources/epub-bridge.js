@@ -391,17 +391,27 @@
         const transitionCSS = isFade
             ? 'transition: opacity 0.18s ease-in-out;'
             : 'transition: transform 0.25s ease-out;';
+        // Use a more specific selector (html > body) to override theme width
         style.textContent = `
             html {
                 height: ${vh}px !important;
                 overflow: hidden !important;
+                margin: 0 !important;
+                padding: 0 !important;
             }
-            body {
+            html > body {
+                width: auto !important;
+                max-width: none !important;
                 height: ${vh - 40}px !important;
                 margin: 20px 0 !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
                 padding: 0 ${_pagination.gap / 2}px !important;
+                -webkit-column-width: ${colWidth}px !important;
                 column-width: ${colWidth}px !important;
+                -webkit-column-gap: ${_pagination.gap}px !important;
                 column-gap: ${_pagination.gap}px !important;
+                -webkit-column-fill: auto !important;
                 column-fill: auto !important;
                 overflow: hidden !important;
                 box-sizing: border-box !important;

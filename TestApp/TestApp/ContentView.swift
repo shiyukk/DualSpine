@@ -221,46 +221,18 @@ struct ReaderContentView: View {
     let onProgressSave: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            EPUBReaderView(
-                document: document,
-                resourceActor: resourceActor,
-                spineIndex: $spineIndex,
-                themeCSS: ReadingCSSGenerator.generateCSS(for: appearance),
-                isPaginated: appearance.readingMode.isPaginated,
-                paginationMode: appearance.readingMode == .fastFade ? "fade" : "slide",
-                highlights: highlights,
-                onMessage: { handleMessage($0) },
-                onHighlightRequest: { sel, hex in onHighlightRequest(sel, hex) },
-                onRemoveHighlightRequest: { id in onRemoveHighlightRequest(id) }
-            )
-
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Rectangle().fill(Color.gray.opacity(0.3))
-                    Rectangle().fill(Color.accentColor).frame(width: geo.size.width * currentProgress)
-                }
-            }.frame(height: 3)
-
-            HStack {
-                Button { if spineIndex > 0 { spineIndex -= 1 } } label: {
-                    Image(systemName: "chevron.left")
-                }.disabled(spineIndex == 0)
-                Spacer()
-                VStack(spacing: 2) {
-                    if appearance.readingMode.isPaginated {
-                        Text("Page \(currentPage + 1) of \(totalPages)").font(.caption)
-                    }
-                    Text("Ch \(spineIndex + 1)/\(document.spineCount) · \(Int(currentProgress * 100))%")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button { if spineIndex < document.spineCount - 1 { spineIndex += 1 } } label: {
-                    Image(systemName: "chevron.right")
-                }.disabled(spineIndex >= document.spineCount - 1)
-            }
-            .padding(.horizontal).padding(.vertical, 8).background(.bar)
-        }
+        EPUBReaderView(
+            document: document,
+            resourceActor: resourceActor,
+            spineIndex: $spineIndex,
+            themeCSS: ReadingCSSGenerator.generateCSS(for: appearance),
+            isPaginated: appearance.readingMode.isPaginated,
+            paginationMode: appearance.readingMode == .fastFade ? "fade" : "slide",
+            highlights: highlights,
+            onMessage: { handleMessage($0) },
+            onHighlightRequest: { sel, hex in onHighlightRequest(sel, hex) },
+            onRemoveHighlightRequest: { id in onRemoveHighlightRequest(id) }
+        )
     }
 
     private func handleMessage(_ message: EPUBBridgeMessage) {

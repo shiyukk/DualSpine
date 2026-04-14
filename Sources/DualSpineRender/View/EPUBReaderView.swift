@@ -154,6 +154,7 @@ public struct EPUBReaderView: UIViewRepresentable {
         var currentPaginated: Bool = false
         var currentPaginationMode: String = "slide"
         var appliedHighlights: [HighlightRecord] = []
+        var didAutoAdvance: Bool = false
         var lastSelection: EPUBBridgeMessage.SelectionPayload?
 
         init(parent: EPUBReaderView) {
@@ -250,6 +251,7 @@ public struct EPUBReaderView: UIViewRepresentable {
 
         func loadSpineItem(at index: Int) {
             lastSelection = nil  // Clear stale selection on navigation
+            didAutoAdvance = false  // Reset auto-advance guard for new chapter
 
             guard let webView,
                   index >= 0,
@@ -345,6 +347,19 @@ public struct EPUBReaderView: UIViewRepresentable {
                 if prevIndex >= 0 {
                     parent.spineIndex = prevIndex
                     loadSpineItem(at: prevIndex)
+                }
+
+            case .progressUpdated(let payload):
+                // In scroll mode: detect scroll-to-end and auto-advance to next chapter
+                if !parent.isPaginated && payload.isAtEnd && !didAutoAdvance {
+                    didAutoAdvance = true
+                    let nextIndex = currentSpineIndex + 1
+                    if nextIndex < parent.document.package.spine.count {
+                        parent.spineIndex = nextIndex
+                        loadSpineItem(at: nextIndex)
+                    }
+                } else if !payload.isAtEnd {
+                    didAutoAdvance = false
                 }
 
             default:
