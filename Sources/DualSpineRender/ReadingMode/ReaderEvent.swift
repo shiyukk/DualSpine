@@ -89,6 +89,20 @@ public enum ReaderEvent: Sendable, Equatable {
             case spineIndex, spineHref
             case highlightID = "highlightId"
         }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.text = try container.decode(String.self, forKey: .text)
+            self.rangeStart = try container.decode(Int.self, forKey: .rangeStart)
+            self.rangeEnd = try container.decode(Int.self, forKey: .rangeEnd)
+            self.rectX = try container.decode(Double.self, forKey: .rectX)
+            self.rectY = try container.decode(Double.self, forKey: .rectY)
+            self.rectWidth = try container.decode(Double.self, forKey: .rectWidth)
+            self.rectHeight = try container.decode(Double.self, forKey: .rectHeight)
+            self.spineIndex = try container.decode(Int.self, forKey: .spineIndex)
+            self.spineHref = try container.decode(String.self, forKey: .spineHref)
+            self.highlightID = try container.decodeIfPresent(String.self, forKey: .highlightID) ?? ""
+        }
     }
 }
 

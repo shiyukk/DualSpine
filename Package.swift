@@ -41,6 +41,11 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
+            name: "DualSpineRenderTests",
+            dependencies: ["DualSpineRender"],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
             name: "DualSpineSemanticTests",
             dependencies: ["DualSpineSemantic"],
             swiftSettings: [.swiftLanguageMode(.v6)]
