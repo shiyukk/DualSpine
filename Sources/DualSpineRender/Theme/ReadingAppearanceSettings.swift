@@ -25,8 +25,14 @@ public struct ReadingAppearanceSettings: Sendable, Hashable, Codable {
 
     // MARK: - Layout
 
-    /// Scroll (true) or paginated (false) reading mode.
-    public var isScrollEnabled: Bool = true
+    /// Reading mode: scroll, slide (page turn), or fast fade.
+    public var readingMode: ReadingMode = .scroll
+
+    /// Legacy accessor — maps readingMode to scroll vs paginated.
+    public var isScrollEnabled: Bool {
+        get { readingMode == .scroll }
+        set { readingMode = newValue ? .scroll : .slide }
+    }
 
     /// Whether to respect the publisher's embedded CSS styles.
     public var usesPublisherStyles: Bool = false
@@ -144,6 +150,29 @@ public enum ReadingFontStyle: String, Sendable, Hashable, Codable, CaseIterable,
             return "\"Courier New\", Courier, monospace"
         }
     }
+}
+
+// MARK: - Reading Mode
+
+public enum ReadingMode: String, Sendable, Hashable, Codable, CaseIterable, Identifiable {
+    /// Continuous vertical scroll — chapters flow seamlessly with preloading.
+    case scroll
+    /// Paginated with horizontal slide transition between pages.
+    case slide
+    /// Paginated with fast fade transition between pages.
+    case fastFade
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .scroll: return "Scroll"
+        case .slide: return "Slide"
+        case .fastFade: return "Fade"
+        }
+    }
+
+    public var isPaginated: Bool { self != .scroll }
 }
 
 // MARK: - Text Alignment

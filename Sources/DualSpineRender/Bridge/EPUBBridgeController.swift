@@ -101,8 +101,9 @@ public final class EPUBBridgeController: NSObject, WKScriptMessageHandler {
     // MARK: - Pagination
 
     /// Enable paginated (column) layout with tap-to-turn zones.
-    public func enablePagination(gap: Int = 40, in webView: WKWebView) {
-        webView.evaluateJavaScript("window.__dualSpine_enablePagination(\(gap))")
+    /// - Parameter mode: "slide" (default) or "fade" transition style.
+    public func enablePagination(gap: Int = 40, mode: String = "slide", in webView: WKWebView) {
+        webView.evaluateJavaScript("window.__dualSpine_enablePagination(\(gap), '\(mode)')")
     }
 
     /// Disable pagination and return to scroll layout.

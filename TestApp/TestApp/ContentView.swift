@@ -227,7 +227,8 @@ struct ReaderContentView: View {
                 resourceActor: resourceActor,
                 spineIndex: $spineIndex,
                 themeCSS: ReadingCSSGenerator.generateCSS(for: appearance),
-                isPaginated: !appearance.isScrollEnabled,
+                isPaginated: appearance.readingMode.isPaginated,
+                paginationMode: appearance.readingMode == .fastFade ? "fade" : "slide",
                 highlights: highlights,
                 onMessage: { handleMessage($0) },
                 onHighlightRequest: { sel, hex in onHighlightRequest(sel, hex) },
@@ -247,7 +248,7 @@ struct ReaderContentView: View {
                 }.disabled(spineIndex == 0)
                 Spacer()
                 VStack(spacing: 2) {
-                    if !appearance.isScrollEnabled {
+                    if appearance.readingMode.isPaginated {
                         Text("Page \(currentPage + 1) of \(totalPages)").font(.caption)
                     }
                     Text("Ch \(spineIndex + 1)/\(document.spineCount) · \(Int(currentProgress * 100))%")
@@ -378,8 +379,12 @@ struct AppearanceSettingsView: View {
 
             // Layout
             Section("Layout") {
-                // Reading mode
-                Toggle("Scroll Mode", isOn: $appearance.isScrollEnabled)
+                // Reading mode — 3 options
+                Picker("Reading Mode", selection: $appearance.readingMode) {
+                    ForEach(ReadingMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }.pickerStyle(.segmented)
 
                 // Page width — 4 presets like ReBabel
                 Picker("Page Width", selection: pageWidthBinding) {

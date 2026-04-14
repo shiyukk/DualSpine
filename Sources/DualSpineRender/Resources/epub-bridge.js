@@ -359,16 +359,19 @@
         currentPage: 0,
         totalPages: 1,
         pageWidth: 0,
-        gap: 40
+        gap: 40,
+        mode: 'slide' // 'slide' or 'fade'
     };
 
     /**
      * Enable paginated (column) layout.
      * @param {number} gap - Gap between pages in pixels (default 40).
+     * @param {string} mode - 'slide' or 'fade' transition mode.
      */
-    window.__dualSpine_enablePagination = function(gap) {
+    window.__dualSpine_enablePagination = function(gap, mode) {
         _pagination.enabled = true;
         _pagination.gap = gap || 40;
+        _pagination.mode = mode || 'slide';
         _pagination.currentPage = 0;
 
         const vw = window.innerWidth;
@@ -384,6 +387,10 @@
         }
 
         const colWidth = vw - _pagination.gap;
+        const isFade = _pagination.mode === 'fade';
+        const transitionCSS = isFade
+            ? 'transition: opacity 0.18s ease-in-out;'
+            : 'transition: transform 0.25s ease-out;';
         style.textContent = `
             html {
                 height: ${vh}px !important;
@@ -400,7 +407,8 @@
                 box-sizing: border-box !important;
                 -webkit-transform: translateX(0px);
                 transform: translateX(0px);
-                transition: transform 0.25s ease-out;
+                opacity: 1;
+                ${transitionCSS}
             }
         `;
 
@@ -515,8 +523,20 @@
         index = Math.max(0, Math.min(index, _pagination.totalPages - 1));
         _pagination.currentPage = index;
         const offset = -index * _pagination.pageWidth;
-        document.body.style.transform = 'translateX(' + offset + 'px)';
-        document.body.style.webkitTransform = 'translateX(' + offset + 'px)';
+
+        if (_pagination.mode === 'fade') {
+            // Fade out → jump → fade in
+            document.body.style.opacity = '0';
+            setTimeout(function() {
+                document.body.style.transform = 'translateX(' + offset + 'px)';
+                document.body.style.webkitTransform = 'translateX(' + offset + 'px)';
+                document.body.style.opacity = '1';
+            }, 180);
+        } else {
+            // Slide (default)
+            document.body.style.transform = 'translateX(' + offset + 'px)';
+            document.body.style.webkitTransform = 'translateX(' + offset + 'px)';
+        }
     }
 
     function _reportPageChange() {

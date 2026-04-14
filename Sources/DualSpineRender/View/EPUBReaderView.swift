@@ -16,6 +16,8 @@ public struct EPUBReaderView: UIViewRepresentable {
     @Binding var spineIndex: Int
     var themeCSS: String?
     var isPaginated: Bool
+    /// Pagination transition mode: "slide" or "fade"
+    var paginationMode: String
     var highlights: [HighlightRecord]
     var onMessage: ((EPUBBridgeMessage) -> Void)?
     /// Called when the user taps a color in the floating highlight toolbar.
@@ -30,6 +32,7 @@ public struct EPUBReaderView: UIViewRepresentable {
         spineIndex: Binding<Int>,
         themeCSS: String? = nil,
         isPaginated: Bool = false,
+        paginationMode: String = "slide",
         highlights: [HighlightRecord] = [],
         onMessage: ((EPUBBridgeMessage) -> Void)? = nil,
         onHighlightRequest: ((_ selection: EPUBBridgeMessage.SelectionPayload, _ tintHex: String) -> Void)? = nil,
@@ -40,6 +43,7 @@ public struct EPUBReaderView: UIViewRepresentable {
         self._spineIndex = spineIndex
         self.themeCSS = themeCSS
         self.isPaginated = isPaginated
+        self.paginationMode = paginationMode
         self.highlights = highlights
         self.onMessage = onMessage
         self.onHighlightRequest = onHighlightRequest
@@ -104,7 +108,7 @@ public struct EPUBReaderView: UIViewRepresentable {
         if isPaginated != coordinator.currentPaginated {
             coordinator.currentPaginated = isPaginated
             if isPaginated {
-                coordinator.bridge.enablePagination(in: webView)
+                coordinator.bridge.enablePagination(mode: paginationMode, in: webView)
             } else {
                 coordinator.bridge.disablePagination(in: webView)
             }
@@ -146,6 +150,25 @@ public struct EPUBReaderView: UIViewRepresentable {
 
             bridge.onMessage = { [weak self] message in
                 self?.handleBridgeMessage(message)
+            }
+        }
+
+        /// Preload raw bytes for previous/next chapters so navigation is instant.
+        /// Runs on background, reads from ZIP archive into OS cache.
+        func preloadAdjacentChapters() {
+            let document = parent.document
+            let resolved = document.package.resolvedSpine
+            let current = currentSpineIndex
+            let actor = parent.resourceActor
+
+            let targets = [current - 1, current + 1].filter { $0 >= 0 && $0 < resolved.count }
+
+            for idx in targets {
+                let href = resolved[idx].1.href
+                let archivePath = document.contentBasePath + href
+                Task.detached(priority: .background) {
+                    _ = try? await actor.readResource(at: archivePath)
+                }
             }
         }
 
@@ -258,10 +281,15 @@ public struct EPUBReaderView: UIViewRepresentable {
                     }
                 }
                 if currentPaginated, let webView {
+                    let mode = parent.paginationMode
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(100))
-                        self.bridge.enablePagination(in: webView)
+                        self.bridge.enablePagination(mode: mode, in: webView)
                     }
+                }
+                // Preload adjacent chapters for instant navigation in scroll mode
+                if !parent.isPaginated {
+                    preloadAdjacentChapters()
                 }
 
             case .selectionChanged(let payload):
