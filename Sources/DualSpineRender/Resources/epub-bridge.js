@@ -391,18 +391,8 @@
         const transitionCSS = isFade
             ? 'transition: opacity 0.18s ease-in-out;'
             : 'transition: transform 0.25s ease-out;';
-        // Wrap body content in a paginator div — avoids conflicts with theme body styles
-        var paginator = document.getElementById('dualspine-paginator');
-        if (!paginator) {
-            paginator = document.createElement('div');
-            paginator.id = 'dualspine-paginator';
-            // Move all body children into paginator
-            while (document.body.firstChild) {
-                paginator.appendChild(document.body.firstChild);
-            }
-            document.body.appendChild(paginator);
-        }
-
+        // Apply column layout directly to body (theme CSS doesn't constrain body
+        // width in paginated mode — ReadingCSSGenerator omits body width rules)
         style.textContent = `
             html {
                 height: ${vh}px !important;
@@ -410,30 +400,21 @@
                 margin: 0 !important;
                 padding: 0 !important;
             }
-            html > body {
+            body {
                 width: 100vw !important;
                 max-width: 100vw !important;
-                height: ${vh}px !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                overflow: hidden !important;
+                min-width: 100vw !important;
+                height: ${vh - 40}px !important;
+                margin: 20px 0 !important;
+                padding: 0 ${_pagination.gap / 2}px !important;
                 box-sizing: border-box !important;
-            }
-            #dualspine-paginator {
-                position: absolute;
-                top: 20px;
-                left: 0;
-                width: 100vw;
-                height: ${vh - 40}px;
-                padding: 0 ${_pagination.gap / 2}px;
-                box-sizing: border-box;
-                -webkit-column-width: ${colWidth}px;
-                column-width: ${colWidth}px;
-                -webkit-column-gap: ${_pagination.gap}px;
-                column-gap: ${_pagination.gap}px;
-                -webkit-column-fill: auto;
-                column-fill: auto;
-                overflow: hidden;
+                -webkit-column-width: ${colWidth}px !important;
+                column-width: ${colWidth}px !important;
+                -webkit-column-gap: ${_pagination.gap}px !important;
+                column-gap: ${_pagination.gap}px !important;
+                -webkit-column-fill: auto !important;
+                column-fill: auto !important;
+                overflow: hidden !important;
                 -webkit-transform: translateX(0px);
                 transform: translateX(0px);
                 opacity: 1;
@@ -469,16 +450,7 @@
         const style = document.getElementById('dualspine-pagination');
         if (style) style.remove();
 
-        // Unwrap the paginator div — move children back to body
-        const paginator = document.getElementById('dualspine-paginator');
-        if (paginator) {
-            while (paginator.firstChild) {
-                document.body.appendChild(paginator.firstChild);
-            }
-            paginator.remove();
-        }
-
-        // Clear inline styles that pagination might have set
+        // Clear inline styles that pagination set on body
         document.documentElement.style.cssText = '';
         document.body.style.cssText = '';
 
@@ -551,9 +523,7 @@
 
     function _recalcPages() {
         if (!_pagination.enabled) return;
-        const paginator = document.getElementById('dualspine-paginator');
-        if (!paginator) return;
-        const scrollW = paginator.scrollWidth;
+        const scrollW = document.body.scrollWidth;
         const pw = _pagination.pageWidth;
         _pagination.totalPages = Math.max(Math.ceil(scrollW / pw), 1);
     }
@@ -562,19 +532,17 @@
         index = Math.max(0, Math.min(index, _pagination.totalPages - 1));
         _pagination.currentPage = index;
         const offset = -index * _pagination.pageWidth;
-        const paginator = document.getElementById('dualspine-paginator');
-        if (!paginator) return;
 
         if (_pagination.mode === 'fade') {
-            paginator.style.opacity = '0';
+            document.body.style.opacity = '0';
             setTimeout(function() {
-                paginator.style.transform = 'translateX(' + offset + 'px)';
-                paginator.style.webkitTransform = 'translateX(' + offset + 'px)';
-                paginator.style.opacity = '1';
+                document.body.style.transform = 'translateX(' + offset + 'px)';
+                document.body.style.webkitTransform = 'translateX(' + offset + 'px)';
+                document.body.style.opacity = '1';
             }, 180);
         } else {
-            paginator.style.transform = 'translateX(' + offset + 'px)';
-            paginator.style.webkitTransform = 'translateX(' + offset + 'px)';
+            document.body.style.transform = 'translateX(' + offset + 'px)';
+            document.body.style.webkitTransform = 'translateX(' + offset + 'px)';
         }
     }
 

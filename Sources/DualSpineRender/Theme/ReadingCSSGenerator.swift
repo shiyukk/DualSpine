@@ -61,6 +61,7 @@ public enum ReadingCSSGenerator {
             text-align: \(s.textAlignment.cssValue)\(imp);
         }
 
+        \(s.readingMode.isPaginated ? "" : """
         body {
             width: \(widthPercent)%\(layoutImp);
             max-width: 100%\(layoutImp);
@@ -69,6 +70,7 @@ public enum ReadingCSSGenerator {
             padding: 0 \(widthPreset == .full ? 12 : 8)px\(layoutImp);
             box-sizing: border-box\(layoutImp);
         }
+        """)
 
         a, a:visited {
             color: \(theme.linkColor)\(imp);
