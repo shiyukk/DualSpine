@@ -165,6 +165,50 @@ public struct EPUBReaderView: UIViewRepresentable {
             }
         }
 
+        /// Append a chapter's XHTML into the current document for continuous scroll.
+        func appendContinuousChapter(spineIndex: Int, in webView: WKWebView) {
+            let doc = parent.document
+            let resolved = doc.package.resolvedSpine
+            guard spineIndex >= 0, spineIndex < resolved.count else { return }
+            let manifest = resolved[spineIndex].1
+            let archivePath = doc.archivePath(forHref: manifest.href)
+            let href = manifest.href
+            let actor = parent.resourceActor
+
+            Task {
+                guard let (data, _) = try? await actor.readResource(at: archivePath),
+                      let html = String(data: data, encoding: .utf8) else { return }
+                let escaped = html
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "`", with: "\\`")
+                    .replacingOccurrences(of: "$", with: "\\$")
+                let hrefEscaped = href.replacingOccurrences(of: "'", with: "\\'")
+                let js = "window.__dualSpine_appendChapter(`\(escaped)`, \(spineIndex), '\(hrefEscaped)')"
+                await MainActor.run {
+                    webView.evaluateJavaScript(js)
+                }
+            }
+        }
+
+        /// Enable continuous scroll: wrap current content as chapter, request next.
+        func enableContinuousScroll(in webView: WKWebView) {
+            let doc = parent.document
+            let resolved = doc.package.resolvedSpine
+            guard currentSpineIndex < resolved.count else { return }
+            let href = resolved[currentSpineIndex].1.href
+            let js = """
+            window.__dualSpine_continuousEnabled = true;
+            window.__dualSpine_currentContinuousIndex = \(currentSpineIndex);
+            window.__dualSpine_wrapAsContinuousChapter(\(currentSpineIndex), '\(href)');
+            """
+            webView.evaluateJavaScript(js) { [weak self] _, _ in
+                // Eagerly append next chapter
+                if let self, let webView = self.webView {
+                    self.appendContinuousChapter(spineIndex: self.currentSpineIndex + 1, in: webView)
+                }
+            }
+        }
+
         /// Preload raw bytes for previous/next chapters so navigation is instant.
         /// Runs on background, reads from ZIP archive into OS cache.
         func preloadAdjacentChapters() {
@@ -300,9 +344,12 @@ public struct EPUBReaderView: UIViewRepresentable {
                         self.bridge.enablePagination(mode: mode, in: webView)
                     }
                 }
-                // Preload adjacent chapters for instant navigation in scroll mode
-                if !parent.isPaginated {
-                    preloadAdjacentChapters()
+                // In scroll mode: enable continuous scroll (append next chapter inline)
+                if !parent.isPaginated, let webView {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(100))
+                        self.enableContinuousScroll(in: webView)
+                    }
                 }
 
             case .selectionChanged(let payload):
@@ -348,17 +395,24 @@ public struct EPUBReaderView: UIViewRepresentable {
                     loadSpineItem(at: prevIndex)
                 }
 
-            case .progressUpdated(let payload):
-                // In scroll mode: detect scroll-to-end and auto-advance to next chapter
-                if !parent.isPaginated && payload.isAtEnd && !didAutoAdvance {
-                    didAutoAdvance = true
-                    let nextIndex = currentSpineIndex + 1
-                    if nextIndex < parent.document.package.spine.count {
-                        parent.spineIndex = nextIndex
-                        loadSpineItem(at: nextIndex)
-                    }
-                } else if !payload.isAtEnd {
-                    didAutoAdvance = false
+            case .progressUpdated:
+                // In continuous scroll mode, scroll-to-end is handled by
+                // requestNextChapter message (appended inline, no page reload).
+                break
+
+            case .requestNextChapter(let payload):
+                // JS wants more content appended — read next chapter from ZIP
+                let nextIdx = payload.afterSpineIndex + 1
+                guard nextIdx < parent.document.package.resolvedSpine.count,
+                      let webView else { return }
+                appendContinuousChapter(spineIndex: nextIdx, in: webView)
+
+            case .continuousChapterChanged(let payload):
+                // Current chapter changed based on scroll position. Update
+                // currentSpineIndex FIRST so updateUIView's diff suppresses reload.
+                currentSpineIndex = payload.spineIndex
+                if parent.spineIndex != payload.spineIndex {
+                    parent.spineIndex = payload.spineIndex
                 }
 
             default:

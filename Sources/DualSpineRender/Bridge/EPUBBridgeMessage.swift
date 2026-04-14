@@ -31,6 +31,12 @@ public enum EPUBBridgeMessage: Sendable {
     /// Page changed in paginated mode.
     case pageChanged(PagePayload)
 
+    /// JS is requesting the next chapter be appended (continuous scroll).
+    case requestNextChapter(RequestNextChapterPayload)
+
+    /// The "current" chapter changed in continuous scroll (based on scroll position).
+    case continuousChapterChanged(ContinuousChapterPayload)
+
     /// User tapped previous at the first page of a spine item.
     case paginationAtStart
 
@@ -86,6 +92,15 @@ public enum EPUBBridgeMessage: Sendable {
 
     public struct RemoveHighlightPayload: Codable, Sendable {
         public let highlightId: String
+    }
+
+    public struct RequestNextChapterPayload: Codable, Sendable {
+        public let afterSpineIndex: Int
+    }
+
+    public struct ContinuousChapterPayload: Codable, Sendable {
+        public let spineIndex: Int
+        public let href: String
     }
 
     public struct PagePayload: Codable, Sendable {
@@ -148,6 +163,18 @@ public enum EPUBBridgeMessage: Sendable {
                 return nil
             }
             return .removeHighlightRequest(payload)
+
+        case "requestNextChapter":
+            guard let payload = decodePayload(RequestNextChapterPayload.self, from: dict["payload"]) else {
+                return nil
+            }
+            return .requestNextChapter(payload)
+
+        case "continuousChapterChanged":
+            guard let payload = decodePayload(ContinuousChapterPayload.self, from: dict["payload"]) else {
+                return nil
+            }
+            return .continuousChapterChanged(payload)
 
         case "pageChanged":
             guard let payload = decodePayload(PagePayload.self, from: dict["payload"]) else {

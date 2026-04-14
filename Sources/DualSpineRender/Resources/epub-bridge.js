@@ -90,7 +90,33 @@
     }
 
     window.addEventListener('scroll', debounce(function() {
-        postMessage('progressUpdated', getProgressInfo());
+        var info = getProgressInfo();
+        postMessage('progressUpdated', info);
+
+        // In continuous scroll mode, when nearing bottom, request next chapter
+        if (window.__dualSpine_continuousEnabled) {
+            var scrollTop = window.scrollY || document.documentElement.scrollTop;
+            var docHeight = document.documentElement.scrollHeight;
+            var viewportHeight = window.innerHeight;
+            // Request next chapter when within 2 viewport heights of the end
+            if ((scrollTop + viewportHeight * 2) >= docHeight) {
+                var articles = document.querySelectorAll('article.ds-chapter');
+                var last = articles[articles.length - 1];
+                if (last && !last.dataset.nextRequested) {
+                    last.dataset.nextRequested = '1';
+                    postMessage('requestNextChapter', {
+                        afterSpineIndex: parseInt(last.dataset.spineIndex, 10)
+                    });
+                }
+            }
+
+            // Detect current chapter based on scroll position
+            var current = window.__dualSpine_getCurrentContinuousChapter();
+            if (current && window.__dualSpine_currentContinuousIndex !== current.spineIndex) {
+                window.__dualSpine_currentContinuousIndex = current.spineIndex;
+                postMessage('continuousChapterChanged', current);
+            }
+        }
     }, PROGRESS_DEBOUNCE_MS), { passive: true });
 
     // ─── Link Interception ───────────────────────────────────────────
@@ -728,6 +754,79 @@
     document.addEventListener('touchstart', function(e) {
         if (_dotStrip && !_dotStrip.contains(e.target)) _hideDotStrip();
     }, { passive: true });
+
+    // ─── Continuous Scroll Chapter Stitching ─────────────────────────
+
+    /**
+     * Wrap current body content in a chapter article for continuous scroll.
+     * Called after contentReady in scroll mode.
+     */
+    window.__dualSpine_wrapAsContinuousChapter = function(spineIndex, spineHref) {
+        if (document.getElementById('ds-chapter-' + spineIndex)) return;
+
+        var article = document.createElement('article');
+        article.className = 'ds-chapter';
+        article.id = 'ds-chapter-' + spineIndex;
+        article.dataset.spineIndex = spineIndex;
+        article.dataset.spineHref = spineHref;
+        article.style.cssText = 'display:block;';
+
+        while (document.body.firstChild) {
+            article.appendChild(document.body.firstChild);
+        }
+        document.body.appendChild(article);
+    };
+
+    /**
+     * Append a chapter's HTML below the current content (continuous scroll).
+     * @param {string} html - Full XHTML body content (from <body> to </body>)
+     * @param {number} spineIndex
+     * @param {string} spineHref
+     */
+    window.__dualSpine_appendChapter = function(html, spineIndex, spineHref) {
+        if (document.getElementById('ds-chapter-' + spineIndex)) return;
+
+        var article = document.createElement('article');
+        article.className = 'ds-chapter';
+        article.id = 'ds-chapter-' + spineIndex;
+        article.dataset.spineIndex = spineIndex;
+        article.dataset.spineHref = spineHref;
+        article.style.cssText = 'display:block;border-top:1px solid rgba(128,128,128,0.1);margin-top:1em;padding-top:1em;';
+
+        // Parse HTML and extract body content
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(html, 'text/html');
+        var body = doc.body;
+        if (body) {
+            while (body.firstChild) {
+                article.appendChild(body.firstChild);
+            }
+        } else {
+            article.innerHTML = html;
+        }
+
+        document.body.appendChild(article);
+    };
+
+    /**
+     * Find the chapter article currently most in view and return its spine index.
+     */
+    window.__dualSpine_getCurrentContinuousChapter = function() {
+        var articles = document.querySelectorAll('article.ds-chapter');
+        var scrollY = window.scrollY;
+        var viewportMid = scrollY + window.innerHeight / 2;
+        var current = null;
+        for (var i = 0; i < articles.length; i++) {
+            var a = articles[i];
+            var top = a.offsetTop;
+            var bottom = top + a.offsetHeight;
+            if (viewportMid >= top && viewportMid < bottom) {
+                current = { spineIndex: parseInt(a.dataset.spineIndex, 10), href: a.dataset.spineHref };
+                break;
+            }
+        }
+        return current;
+    };
 
     // ─── Content Ready ───────────────────────────────────────────────
 
