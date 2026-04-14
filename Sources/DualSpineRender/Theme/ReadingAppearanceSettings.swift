@@ -10,8 +10,8 @@ public struct ReadingAppearanceSettings: Sendable, Hashable, Codable {
 
     // MARK: - Typography
 
-    /// Font size in points. Range: [12, 40]. Default: 18.
-    public var fontSize: Double = 18
+    /// Font size in points. Range: [12, 40]. Default: 20.
+    public var fontSize: Double = 20
 
     /// Line spacing in points. Range: [0, 20]. Default: 6.
     /// Converted to CSS line-height via: 1.35 + (lineSpacing / 20.0)
