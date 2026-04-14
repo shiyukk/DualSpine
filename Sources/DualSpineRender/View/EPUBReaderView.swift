@@ -109,6 +109,7 @@ public struct EPUBReaderView: UIViewRepresentable {
         let modeChanged = isPaginated != coordinator.currentPaginated
             || (isPaginated && paginationMode != coordinator.currentPaginationMode)
         if modeChanged {
+            let wasPaginated = coordinator.currentPaginated
             coordinator.currentPaginated = isPaginated
             coordinator.currentPaginationMode = paginationMode
             if isPaginated {
@@ -121,6 +122,15 @@ public struct EPUBReaderView: UIViewRepresentable {
                 }
             } else {
                 coordinator.bridge.disablePagination(in: webView)
+                // Switching from paginated to scroll: re-enable continuous scroll
+                if wasPaginated {
+                    Task { @MainActor [weak coordinator] in
+                        try? await Task.sleep(for: .milliseconds(80))
+                        if let webView = coordinator?.webView {
+                            coordinator?.enableContinuousScroll(in: webView)
+                        }
+                    }
+                }
             }
         }
 
@@ -155,13 +165,27 @@ public struct EPUBReaderView: UIViewRepresentable {
         var appliedHighlights: [HighlightRecord] = []
         var didAutoAdvance: Bool = false
         var lastSelection: EPUBBridgeMessage.SelectionPayload?
+        let chapterCache: ChapterCache
+
+        /// Window of spine indices currently injected into the DOM.
+        /// Used by scroll mode to avoid re-injecting chapters.
+        var injectedSpineIndices: Set<Int> = []
 
         init(parent: EPUBReaderView) {
             self.parent = parent
+            self.chapterCache = ChapterCache(
+                document: parent.document,
+                resourceActor: parent.resourceActor
+            )
             super.init()
 
             bridge.onMessage = { [weak self] message in
                 self?.handleBridgeMessage(message)
+            }
+
+            // Kick off bulk chapter preload in background
+            Task.detached(priority: .utility) { [chapterCache] in
+                await chapterCache.preloadAll()
             }
         }
 
@@ -179,15 +203,15 @@ public struct EPUBReaderView: UIViewRepresentable {
             let doc = parent.document
             let resolved = doc.package.resolvedSpine
             guard spineIndex >= 0, spineIndex < resolved.count else { return }
-            let manifest = resolved[spineIndex].1
-            let archivePath = doc.archivePath(forHref: manifest.href)
-            let href = manifest.href
-            let actor = parent.resourceActor
+            if injectedSpineIndices.contains(spineIndex) { return }
+            injectedSpineIndices.insert(spineIndex)
+
+            let href = resolved[spineIndex].1.href
             let jsFunc = prepend ? "__dualSpine_prependChapter" : "__dualSpine_appendChapter"
+            let cache = chapterCache
 
             Task {
-                guard let (data, _) = try? await actor.readResource(at: archivePath),
-                      let html = String(data: data, encoding: .utf8) else { return }
+                guard let html = await cache.html(forSpineIndex: spineIndex) else { return }
                 let escaped = html
                     .replacingOccurrences(of: "\\", with: "\\\\")
                     .replacingOccurrences(of: "`", with: "\\`")
@@ -201,11 +225,13 @@ public struct EPUBReaderView: UIViewRepresentable {
         }
 
         /// Enable continuous scroll: wrap current content, prepend prev chapters,
-        /// append next chapters. Parallel loading for speed.
+        /// append next chapters. Uses ChapterCache for instant injection.
         func enableContinuousScroll(in webView: WKWebView) {
             let doc = parent.document
             let resolved = doc.package.resolvedSpine
             guard currentSpineIndex < resolved.count else { return }
+
+            injectedSpineIndices = [currentSpineIndex]
             let href = resolved[currentSpineIndex].1.href
             let js = """
             window.__dualSpine_continuousEnabled = true;
@@ -217,20 +243,18 @@ public struct EPUBReaderView: UIViewRepresentable {
                 let current = self.currentSpineIndex
                 let total = resolved.count
 
-                // FORWARD: append next 5 chapters in parallel (no sequential delay)
-                for offset in 1...5 {
+                // FORWARD: preload next 10 chapters (or all remaining)
+                for offset in 1...10 {
                     let idx = current + offset
                     guard idx < total else { break }
                     self.appendContinuousChapter(spineIndex: idx, in: webView)
                 }
 
-                // BACKWARD: prepend prev 2 chapters so user can scroll up
-                // (only needed when starting mid-book, e.g., from TOC/resume)
+                // BACKWARD: prepend prev 5 chapters for smooth scroll-up
                 if current > 0 {
                     Task { @MainActor in
-                        // Small delay so the current chapter layouts first
-                        try? await Task.sleep(for: .milliseconds(100))
-                        for offset in 1...2 {
+                        try? await Task.sleep(for: .milliseconds(150))
+                        for offset in 1...5 {
                             let idx = current - offset
                             guard idx >= 0 else { break }
                             self.prependContinuousChapter(spineIndex: idx, in: webView)

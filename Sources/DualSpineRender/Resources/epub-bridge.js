@@ -113,18 +113,14 @@
 
             // Backward: request previous chapter when within 1 viewport of top
             if (scrollTop < viewportHeight) {
-                // Find the article with the lowest spineIndex (earliest chapter)
-                var earliest = null;
                 var earliestIdx = Infinity;
                 for (var j = 0; j < articles.length; j++) {
                     var aidx = parseInt(articles[j].dataset.spineIndex, 10);
-                    if (aidx < earliestIdx) {
-                        earliestIdx = aidx;
-                        earliest = articles[j];
-                    }
+                    if (aidx < earliestIdx) earliestIdx = aidx;
                 }
-                if (earliest && !earliest.dataset.prevRequested && earliestIdx > 0) {
-                    earliest.dataset.prevRequested = '1';
+                if (earliestIdx > 0 && earliestIdx !== Infinity
+                    && window.__dualSpine_lastPrevRequest !== earliestIdx) {
+                    window.__dualSpine_lastPrevRequest = earliestIdx;
                     postMessage('requestPrevChapter', {
                         beforeSpineIndex: earliestIdx
                     });
