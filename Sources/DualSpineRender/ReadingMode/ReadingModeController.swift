@@ -299,7 +299,8 @@ public actor ReadingModeController {
             guard index >= 0, index < resolved.count else { continue }
             let href = resolved[index].manifest.href
             guard let html = await chapterCache.html(forSpineIndex: index) else { continue }
-            let body = ChapterBodyExtractor.extractBody(from: html)
+            let baseURL = chapterBaseURL(forHref: href)
+            let body = ChapterBodyExtractor.extractBody(from: html, baseURL: baseURL)
             contents.append(
                 ChapterContent(
                     spineIndex: index,
@@ -309,6 +310,11 @@ public actor ReadingModeController {
             )
         }
         return contents
+    }
+
+    private func chapterBaseURL(forHref href: String) -> URL? {
+        let archivePath = document.archivePath(forHref: href)
+        return URL(string: "\(EPUBSchemeHandler.scheme)://book/\(archivePath)")
     }
 
     // MARK: - Dispatch

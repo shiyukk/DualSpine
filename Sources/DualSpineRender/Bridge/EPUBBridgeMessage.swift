@@ -1,50 +1,20 @@
 import Foundation
 
-/// Messages sent from the JavaScript bridge (`epub-bridge.js`) to Swift
-/// via `WKScriptMessageHandler`.
+/// Messages surfaced to `EPUBReaderView` consumers.
+///
+/// This enum is a compatibility projection over the new ``ReaderEvent`` channel.
+/// Only the cases a host app can usefully react to are exposed; internal
+/// boundary and progress-window events stay inside the controller.
 public enum EPUBBridgeMessage: Sendable {
-
-    /// User selected text in the EPUB content.
     case selectionChanged(SelectionPayload)
-
-    /// User cleared their text selection.
     case selectionCleared
-
-    /// Scroll position or reading progress changed.
     case progressUpdated(ProgressPayload)
-
-    /// A link in the content was tapped.
     case linkTapped(LinkPayload)
-
-    /// The content document finished loading and is ready for interaction.
     case contentReady(ContentReadyPayload)
-
-    /// An image in the content was tapped (for zoom/inspection).
     case imageTapped(ImagePayload)
-
-    /// User tapped a highlight color in the floating toolbar (JS-driven).
     case highlightRequest(HighlightRequestPayload)
-
-    /// User tapped "Remove Highlight" in the floating toolbar (JS-driven).
     case removeHighlightRequest(RemoveHighlightPayload)
-
-    /// Page changed in paginated mode.
     case pageChanged(PagePayload)
-
-    /// JS is requesting the next chapter be appended (continuous scroll).
-    case requestNextChapter(RequestNextChapterPayload)
-
-    /// JS is requesting the previous chapter be prepended (continuous scroll).
-    case requestPrevChapter(RequestPrevChapterPayload)
-
-    /// The "current" chapter changed in continuous scroll (based on scroll position).
-    case continuousChapterChanged(ContinuousChapterPayload)
-
-    /// User tapped previous at the first page of a spine item.
-    case paginationAtStart
-
-    /// User tapped next at the last page of a spine item.
-    case paginationAtEnd
 
     // MARK: - Payloads
 
@@ -56,19 +26,48 @@ public enum EPUBBridgeMessage: Sendable {
         public let rectY: Double
         public let rectWidth: Double
         public let rectHeight: Double
-        /// The spine item href where the selection occurred.
         public let spineHref: String
+
+        public init(
+            text: String,
+            rangeStart: Int,
+            rangeEnd: Int,
+            rectX: Double,
+            rectY: Double,
+            rectWidth: Double,
+            rectHeight: Double,
+            spineHref: String
+        ) {
+            self.text = text
+            self.rangeStart = rangeStart
+            self.rangeEnd = rangeEnd
+            self.rectX = rectX
+            self.rectY = rectY
+            self.rectWidth = rectWidth
+            self.rectHeight = rectHeight
+            self.spineHref = spineHref
+        }
     }
 
     public struct ProgressPayload: Codable, Sendable {
-        /// 0.0–1.0 progress within the current spine item.
+        /// Progress within the current spine item. In the new engine this
+        /// tracks overall reader progress across the mounted window.
         public let chapterProgress: Double
-        /// Total vertical scroll offset in points.
         public let scrollOffset: Double
-        /// Total content height in points.
         public let contentHeight: Double
-        /// Whether the user has scrolled to the end of the current spine item.
         public let isAtEnd: Bool
+
+        public init(
+            chapterProgress: Double,
+            scrollOffset: Double = 0,
+            contentHeight: Double = 0,
+            isAtEnd: Bool = false
+        ) {
+            self.chapterProgress = chapterProgress
+            self.scrollOffset = scrollOffset
+            self.contentHeight = contentHeight
+            self.isAtEnd = isAtEnd
+        }
     }
 
     public struct LinkPayload: Codable, Sendable {
@@ -97,123 +96,67 @@ public enum EPUBBridgeMessage: Sendable {
         public let highlightId: String
     }
 
-    public struct RequestNextChapterPayload: Codable, Sendable {
-        public let afterSpineIndex: Int
-    }
-
-    public struct RequestPrevChapterPayload: Codable, Sendable {
-        public let beforeSpineIndex: Int
-    }
-
-    public struct ContinuousChapterPayload: Codable, Sendable {
-        public let spineIndex: Int
-        public let href: String
-    }
-
     public struct PagePayload: Codable, Sendable {
         public let currentPage: Int
         public let totalPages: Int
         public let progress: Double
     }
+}
 
-    // MARK: - Parsing
+// MARK: - Projection
 
-    /// Parse a raw message dictionary from `WKScriptMessage.body`.
-    public static func parse(from body: Any) -> EPUBBridgeMessage? {
-        guard let dict = body as? [String: Any],
-              let type = dict["type"] as? String else {
+extension EPUBBridgeMessage {
+    /// Project a new-engine ``ReaderEvent`` into the legacy ``EPUBBridgeMessage``
+    /// shape that host applications observe. Returns `nil` for events that
+    /// are internal to the engine (boundary, ready).
+    static func from(event: ReaderEvent, currentSpineHref: String) -> EPUBBridgeMessage? {
+        switch event {
+        case .ready, .boundaryReached, .chapterChanged:
             return nil
-        }
 
-        switch type {
-        case "selectionChanged":
-            guard let payload = decodePayload(SelectionPayload.self, from: dict["payload"]) else {
-                return nil
+        case let .progressUpdated(overall, pageIndex, pageCount):
+            if let pageIndex, let pageCount, pageCount > 0 {
+                let progress = pageCount > 1 ? Double(pageIndex) / Double(pageCount - 1) : 0
+                return .pageChanged(PagePayload(
+                    currentPage: pageIndex,
+                    totalPages: pageCount,
+                    progress: progress
+                ))
             }
-            return .selectionChanged(payload)
+            return .progressUpdated(ProgressPayload(chapterProgress: overall))
 
-        case "selectionCleared":
+        case let .selectionChanged(payload):
+            return .selectionChanged(SelectionPayload(
+                text: payload.text,
+                rangeStart: payload.rangeStart,
+                rangeEnd: payload.rangeEnd,
+                rectX: payload.rectX,
+                rectY: payload.rectY,
+                rectWidth: payload.rectWidth,
+                rectHeight: payload.rectHeight,
+                spineHref: payload.spineHref.isEmpty ? currentSpineHref : payload.spineHref
+            ))
+
+        case .selectionCleared:
             return .selectionCleared
 
-        case "progressUpdated":
-            guard let payload = decodePayload(ProgressPayload.self, from: dict["payload"]) else {
-                return nil
-            }
-            return .progressUpdated(payload)
+        case let .highlightRequested(selection, tintHex):
+            _ = selection
+            return .highlightRequest(HighlightRequestPayload(tintHex: tintHex))
 
-        case "linkTapped":
-            guard let payload = decodePayload(LinkPayload.self, from: dict["payload"]) else {
-                return nil
-            }
-            return .linkTapped(payload)
+        case let .removeHighlightRequested(highlightID):
+            return .removeHighlightRequest(RemoveHighlightPayload(highlightId: highlightID))
 
-        case "contentReady":
-            guard let payload = decodePayload(ContentReadyPayload.self, from: dict["payload"]) else {
-                return nil
-            }
-            return .contentReady(payload)
+        case let .linkTapped(href, isInternal):
+            return .linkTapped(LinkPayload(href: href, isInternal: isInternal))
 
-        case "imageTapped":
-            guard let payload = decodePayload(ImagePayload.self, from: dict["payload"]) else {
-                return nil
-            }
-            return .imageTapped(payload)
-
-        case "highlightRequest":
-            guard let payload = decodePayload(HighlightRequestPayload.self, from: dict["payload"]) else {
-                return nil
-            }
-            return .highlightRequest(payload)
-
-        case "removeHighlightRequest":
-            guard let payload = decodePayload(RemoveHighlightPayload.self, from: dict["payload"]) else {
-                return nil
-            }
-            return .removeHighlightRequest(payload)
-
-        case "requestNextChapter":
-            guard let payload = decodePayload(RequestNextChapterPayload.self, from: dict["payload"]) else {
-                return nil
-            }
-            return .requestNextChapter(payload)
-
-        case "requestPrevChapter":
-            guard let payload = decodePayload(RequestPrevChapterPayload.self, from: dict["payload"]) else {
-                return nil
-            }
-            return .requestPrevChapter(payload)
-
-        case "continuousChapterChanged":
-            guard let payload = decodePayload(ContinuousChapterPayload.self, from: dict["payload"]) else {
-                return nil
-            }
-            return .continuousChapterChanged(payload)
-
-        case "pageChanged":
-            guard let payload = decodePayload(PagePayload.self, from: dict["payload"]) else {
-                return nil
-            }
-            return .pageChanged(payload)
-
-        case "paginationAtStart":
-            return .paginationAtStart
-
-        case "paginationAtEnd":
-            return .paginationAtEnd
-
-        case "paginationDisabled":
-            return nil
-
-        default:
-            return nil
+        case let .imageTapped(src, alt, width, height):
+            return .imageTapped(ImagePayload(
+                src: src,
+                alt: alt,
+                naturalWidth: width,
+                naturalHeight: height
+            ))
         }
-    }
-
-    private static func decodePayload<T: Decodable>(_ type: T.Type, from value: Any?) -> T? {
-        guard let dict = value,
-              let data = try? JSONSerialization.data(withJSONObject: dict) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(T.self, from: data)
     }
 }

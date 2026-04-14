@@ -57,6 +57,8 @@ public enum ReaderEvent: Sendable, Equatable {
         public let rectHeight: Double
         public let spineIndex: Int
         public let spineHref: String
+        /// Non-empty when the selection lies inside an existing highlight.
+        public let highlightID: String
 
         public init(
             text: String,
@@ -67,7 +69,8 @@ public enum ReaderEvent: Sendable, Equatable {
             rectWidth: Double,
             rectHeight: Double,
             spineIndex: Int,
-            spineHref: String
+            spineHref: String,
+            highlightID: String = ""
         ) {
             self.text = text
             self.rangeStart = rangeStart
@@ -78,6 +81,13 @@ public enum ReaderEvent: Sendable, Equatable {
             self.rectHeight = rectHeight
             self.spineIndex = spineIndex
             self.spineHref = spineHref
+            self.highlightID = highlightID
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case text, rangeStart, rangeEnd, rectX, rectY, rectWidth, rectHeight
+            case spineIndex, spineHref
+            case highlightID = "highlightId"
         }
     }
 }

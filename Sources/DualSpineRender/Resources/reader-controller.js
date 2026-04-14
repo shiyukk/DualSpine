@@ -233,6 +233,18 @@
         const rangeStart = preRange.toString().length;
 
         const rect = range.getBoundingClientRect();
+
+        // Detect whether the selection sits inside an existing highlight.
+        let overlappingHighlightID = '';
+        let probe = range.startContainer;
+        while (probe && probe !== chapterEl) {
+            if (probe.nodeType === 1 && probe.classList && probe.classList.contains('ds-highlight')) {
+                overlappingHighlightID = probe.dataset.highlightId || '';
+                break;
+            }
+            probe = probe.parentNode;
+        }
+
         const payload = {
             text: text,
             rangeStart: rangeStart,
@@ -242,7 +254,8 @@
             rectWidth: rect.width,
             rectHeight: rect.height,
             spineIndex: spineIndex,
-            spineHref: spineHref
+            spineHref: spineHref,
+            highlightId: overlappingHighlightID
         };
         postEvent('selectionChanged', payload);
         return payload;
