@@ -391,7 +391,18 @@
         const transitionCSS = isFade
             ? 'transition: opacity 0.18s ease-in-out;'
             : 'transition: transform 0.25s ease-out;';
-        // Use a more specific selector (html > body) to override theme width
+        // Wrap body content in a paginator div — avoids conflicts with theme body styles
+        var paginator = document.getElementById('dualspine-paginator');
+        if (!paginator) {
+            paginator = document.createElement('div');
+            paginator.id = 'dualspine-paginator';
+            // Move all body children into paginator
+            while (document.body.firstChild) {
+                paginator.appendChild(document.body.firstChild);
+            }
+            document.body.appendChild(paginator);
+        }
+
         style.textContent = `
             html {
                 height: ${vh}px !important;
@@ -400,21 +411,29 @@
                 padding: 0 !important;
             }
             html > body {
-                width: auto !important;
-                max-width: none !important;
-                height: ${vh - 40}px !important;
-                margin: 20px 0 !important;
-                margin-left: 0 !important;
-                margin-right: 0 !important;
-                padding: 0 ${_pagination.gap / 2}px !important;
-                -webkit-column-width: ${colWidth}px !important;
-                column-width: ${colWidth}px !important;
-                -webkit-column-gap: ${_pagination.gap}px !important;
-                column-gap: ${_pagination.gap}px !important;
-                -webkit-column-fill: auto !important;
-                column-fill: auto !important;
+                width: 100vw !important;
+                max-width: 100vw !important;
+                height: ${vh}px !important;
+                margin: 0 !important;
+                padding: 0 !important;
                 overflow: hidden !important;
                 box-sizing: border-box !important;
+            }
+            #dualspine-paginator {
+                position: absolute;
+                top: 20px;
+                left: 0;
+                width: 100vw;
+                height: ${vh - 40}px;
+                padding: 0 ${_pagination.gap / 2}px;
+                box-sizing: border-box;
+                -webkit-column-width: ${colWidth}px;
+                column-width: ${colWidth}px;
+                -webkit-column-gap: ${_pagination.gap}px;
+                column-gap: ${_pagination.gap}px;
+                -webkit-column-fill: auto;
+                column-fill: auto;
+                overflow: hidden;
                 -webkit-transform: translateX(0px);
                 transform: translateX(0px);
                 opacity: 1;
@@ -450,16 +469,18 @@
         const style = document.getElementById('dualspine-pagination');
         if (style) style.remove();
 
-        document.documentElement.style.overflow = '';
-        document.body.style.overflow = '';
-        document.body.style.transform = '';
-        document.body.style.webkitTransform = '';
-        document.body.style.opacity = '';
-        document.body.style.transition = '';
-        document.documentElement.style.height = '';
-        document.body.style.height = '';
-        document.body.style.margin = '';
-        document.body.style.padding = '';
+        // Unwrap the paginator div — move children back to body
+        const paginator = document.getElementById('dualspine-paginator');
+        if (paginator) {
+            while (paginator.firstChild) {
+                document.body.appendChild(paginator.firstChild);
+            }
+            paginator.remove();
+        }
+
+        // Clear inline styles that pagination might have set
+        document.documentElement.style.cssText = '';
+        document.body.style.cssText = '';
 
         _removeTapZones();
         postMessage('paginationDisabled');
@@ -530,7 +551,9 @@
 
     function _recalcPages() {
         if (!_pagination.enabled) return;
-        const scrollW = document.body.scrollWidth;
+        const paginator = document.getElementById('dualspine-paginator');
+        if (!paginator) return;
+        const scrollW = paginator.scrollWidth;
         const pw = _pagination.pageWidth;
         _pagination.totalPages = Math.max(Math.ceil(scrollW / pw), 1);
     }
@@ -539,19 +562,19 @@
         index = Math.max(0, Math.min(index, _pagination.totalPages - 1));
         _pagination.currentPage = index;
         const offset = -index * _pagination.pageWidth;
+        const paginator = document.getElementById('dualspine-paginator');
+        if (!paginator) return;
 
         if (_pagination.mode === 'fade') {
-            // Fade out → jump → fade in
-            document.body.style.opacity = '0';
+            paginator.style.opacity = '0';
             setTimeout(function() {
-                document.body.style.transform = 'translateX(' + offset + 'px)';
-                document.body.style.webkitTransform = 'translateX(' + offset + 'px)';
-                document.body.style.opacity = '1';
+                paginator.style.transform = 'translateX(' + offset + 'px)';
+                paginator.style.webkitTransform = 'translateX(' + offset + 'px)';
+                paginator.style.opacity = '1';
             }, 180);
         } else {
-            // Slide (default)
-            document.body.style.transform = 'translateX(' + offset + 'px)';
-            document.body.style.webkitTransform = 'translateX(' + offset + 'px)';
+            paginator.style.transform = 'translateX(' + offset + 'px)';
+            paginator.style.webkitTransform = 'translateX(' + offset + 'px)';
         }
     }
 

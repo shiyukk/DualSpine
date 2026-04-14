@@ -112,10 +112,9 @@ public struct EPUBReaderView: UIViewRepresentable {
             coordinator.currentPaginated = isPaginated
             coordinator.currentPaginationMode = paginationMode
             if isPaginated {
-                // Disable first to clean up CSS, then re-enable with new mode
                 coordinator.bridge.disablePagination(in: webView)
                 Task { @MainActor [weak coordinator] in
-                    try? await Task.sleep(for: .milliseconds(50))
+                    try? await Task.sleep(for: .milliseconds(80))
                     if let webView = coordinator?.webView {
                         coordinator?.bridge.enablePagination(mode: paginationMode, in: webView)
                     }
