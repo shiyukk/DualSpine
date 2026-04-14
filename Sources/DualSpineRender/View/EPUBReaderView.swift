@@ -202,22 +202,31 @@ public struct EPUBReaderView: UIViewRepresentable {
             window.__dualSpine_wrapAsContinuousChapter(\(currentSpineIndex), '\(href)');
             """
             webView.evaluateJavaScript(js) { [weak self] _, _ in
-                // Eagerly append next chapter
-                if let self, let webView = self.webView {
-                    self.appendContinuousChapter(spineIndex: self.currentSpineIndex + 1, in: webView)
+                guard let self, let webView = self.webView else { return }
+                // Eagerly append the next 3 chapters for smooth scrolling
+                Task { @MainActor in
+                    for offset in 1...3 {
+                        let idx = self.currentSpineIndex + offset
+                        guard idx < doc.package.resolvedSpine.count else { break }
+                        self.appendContinuousChapter(spineIndex: idx, in: webView)
+                        try? await Task.sleep(for: .milliseconds(50))
+                    }
                 }
             }
         }
 
-        /// Preload raw bytes for previous/next chapters so navigation is instant.
-        /// Runs on background, reads from ZIP archive into OS cache.
+        /// Preload raw bytes for prev/next chapters (2 each direction) so
+        /// navigation is instant. Runs on background — reads from ZIP into
+        /// the actor's in-memory cache.
         func preloadAdjacentChapters() {
             let document = parent.document
             let resolved = document.package.resolvedSpine
             let current = currentSpineIndex
             let actor = parent.resourceActor
 
-            let targets = [current - 1, current + 1].filter { $0 >= 0 && $0 < resolved.count }
+            // Preload 2 before and 2 after (wider window than before)
+            let targets = [current - 2, current - 1, current + 1, current + 2]
+                .filter { $0 >= 0 && $0 < resolved.count }
 
             for idx in targets {
                 let href = resolved[idx].1.href
@@ -344,13 +353,15 @@ public struct EPUBReaderView: UIViewRepresentable {
                         self.bridge.enablePagination(mode: mode, in: webView)
                     }
                 }
-                // In scroll mode: enable continuous scroll (append next chapter inline)
+                // In scroll mode: enable continuous scroll (append next chapters inline)
                 if !parent.isPaginated, let webView {
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(100))
                         self.enableContinuousScroll(in: webView)
                     }
                 }
+                // Always preload adjacent chapters into actor cache as a safety net
+                preloadAdjacentChapters()
 
             case .selectionChanged(let payload):
                 lastSelection = payload
@@ -401,11 +412,18 @@ public struct EPUBReaderView: UIViewRepresentable {
                 break
 
             case .requestNextChapter(let payload):
-                // JS wants more content appended — read next chapter from ZIP
-                let nextIdx = payload.afterSpineIndex + 1
-                guard nextIdx < parent.document.package.resolvedSpine.count,
-                      let webView else { return }
-                appendContinuousChapter(spineIndex: nextIdx, in: webView)
+                // JS wants more content — read next 2 chapters from ZIP
+                // (one to satisfy the request + one more buffer)
+                guard let webView else { return }
+                let total = parent.document.package.resolvedSpine.count
+                Task { @MainActor in
+                    for offset in 1...2 {
+                        let idx = payload.afterSpineIndex + offset
+                        guard idx < total else { break }
+                        self.appendContinuousChapter(spineIndex: idx, in: webView)
+                        try? await Task.sleep(for: .milliseconds(30))
+                    }
+                }
 
             case .continuousChapterChanged(let payload):
                 // Current chapter changed based on scroll position. Update
