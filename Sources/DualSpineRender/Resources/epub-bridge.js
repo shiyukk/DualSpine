@@ -127,11 +127,13 @@
                 }
             }
 
-            // Detect current chapter based on scroll position
-            var current = window.__dualSpine_getCurrentContinuousChapter();
-            if (current && window.__dualSpine_currentContinuousIndex !== current.spineIndex) {
-                window.__dualSpine_currentContinuousIndex = current.spineIndex;
-                postMessage('continuousChapterChanged', current);
+            // Detect current chapter based on scroll position (unless programmatic scroll)
+            if (!window.__dualSpine_suppressChapterChanged) {
+                var current = window.__dualSpine_getCurrentContinuousChapter();
+                if (current && window.__dualSpine_currentContinuousIndex !== current.spineIndex) {
+                    window.__dualSpine_currentContinuousIndex = current.spineIndex;
+                    postMessage('continuousChapterChanged', current);
+                }
             }
         }
     }, PROGRESS_DEBOUNCE_MS), { passive: true });

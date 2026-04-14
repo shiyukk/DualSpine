@@ -224,44 +224,69 @@ public struct EPUBReaderView: UIViewRepresentable {
             }
         }
 
-        /// Enable continuous scroll: wrap current content, prepend prev chapters,
-        /// append next chapters. Uses ChapterCache for instant injection.
+        /// Enable continuous scroll: load the ENTIRE book into the DOM as one
+        /// continuous document. Trades upfront memory for zero scroll lag and
+        /// instant TOC navigation (scroll-to-element instead of page reload).
         func enableContinuousScroll(in webView: WKWebView) {
             let doc = parent.document
             let resolved = doc.package.resolvedSpine
             guard currentSpineIndex < resolved.count else { return }
 
-            injectedSpineIndices = [currentSpineIndex]
-            let href = resolved[currentSpineIndex].1.href
-            let js = """
-            window.__dualSpine_continuousEnabled = true;
-            window.__dualSpine_currentContinuousIndex = \(currentSpineIndex);
-            window.__dualSpine_wrapAsContinuousChapter(\(currentSpineIndex), '\(href)');
-            """
-            webView.evaluateJavaScript(js) { [weak self] _, _ in
-                guard let self, let webView = self.webView else { return }
-                let current = self.currentSpineIndex
-                let total = resolved.count
+            let current = currentSpineIndex
+            let total = resolved.count
+            let currentHref = resolved[current].1.href
 
-                // FORWARD: preload next 10 chapters (or all remaining)
-                for offset in 1...10 {
-                    let idx = current + offset
-                    guard idx < total else { break }
+            // Mark current chapter as the only already-injected one (from WebView load)
+            injectedSpineIndices = [current]
+
+            let setupJS = """
+            window.__dualSpine_continuousEnabled = true;
+            window.__dualSpine_currentContinuousIndex = \(current);
+            window.__dualSpine_wrapAsContinuousChapter(\(current), '\(currentHref)');
+            """
+            webView.evaluateJavaScript(setupJS) { [weak self] _, _ in
+                guard let self, let webView = self.webView else { return }
+
+                // Append ALL chapters after current
+                for idx in (current + 1)..<total {
                     self.appendContinuousChapter(spineIndex: idx, in: webView)
                 }
 
-                // BACKWARD: prepend prev 5 chapters for smooth scroll-up
+                // Prepend ALL chapters before current (after brief delay so
+                // current chapter layouts first — avoids scroll-adjust jumps)
                 if current > 0 {
                     Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(150))
-                        for offset in 1...5 {
-                            let idx = current - offset
-                            guard idx >= 0 else { break }
+                        try? await Task.sleep(for: .milliseconds(200))
+                        for idx in stride(from: current - 1, through: 0, by: -1) {
                             self.prependContinuousChapter(spineIndex: idx, in: webView)
                         }
                     }
                 }
             }
+        }
+
+        /// Scroll to a chapter's article WITHOUT reloading the webview.
+        /// Returns true if the chapter is already in the DOM and was scrolled to.
+        /// Returns false if a full reload is needed.
+        func scrollToChapter(spineIndex: Int, in webView: WKWebView) -> Bool {
+            guard injectedSpineIndices.contains(spineIndex) else { return false }
+            let js = """
+            (function() {
+                var el = document.getElementById('ds-chapter-\(spineIndex)');
+                if (el) {
+                    window.__dualSpine_suppressChapterChanged = true;
+                    el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+                    setTimeout(function() {
+                        window.__dualSpine_suppressChapterChanged = false;
+                    }, 1000);
+                    return true;
+                }
+                return false;
+            })();
+            """
+            webView.evaluateJavaScript(js)
+            currentSpineIndex = spineIndex
+            return true
         }
 
         /// Preload raw bytes for prev/next chapters (2 each direction) so
@@ -357,6 +382,15 @@ public struct EPUBReaderView: UIViewRepresentable {
             guard let webView,
                   index >= 0,
                   index < parent.document.package.spine.count else { return }
+
+            // In continuous scroll mode, if the chapter is already in the DOM,
+            // just scroll to it — no page reload, no lag.
+            if !parent.isPaginated && scrollToChapter(spineIndex: index, in: webView) {
+                return
+            }
+
+            // Otherwise, reset injection set and reload the webview
+            injectedSpineIndices.removeAll()
 
             let resolvedSpine = parent.document.package.resolvedSpine
             guard index < resolvedSpine.count else { return }
