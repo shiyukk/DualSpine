@@ -113,15 +113,21 @@
 
             // Backward: request previous chapter when within 1 viewport of top
             if (scrollTop < viewportHeight) {
-                var first = articles[0];
-                if (first && !first.dataset.prevRequested) {
-                    var firstIdx = parseInt(first.dataset.spineIndex, 10);
-                    if (firstIdx > 0) {
-                        first.dataset.prevRequested = '1';
-                        postMessage('requestPrevChapter', {
-                            beforeSpineIndex: firstIdx
-                        });
+                // Find the article with the lowest spineIndex (earliest chapter)
+                var earliest = null;
+                var earliestIdx = Infinity;
+                for (var j = 0; j < articles.length; j++) {
+                    var aidx = parseInt(articles[j].dataset.spineIndex, 10);
+                    if (aidx < earliestIdx) {
+                        earliestIdx = aidx;
+                        earliest = articles[j];
                     }
+                }
+                if (earliest && !earliest.dataset.prevRequested && earliestIdx > 0) {
+                    earliest.dataset.prevRequested = '1';
+                    postMessage('requestPrevChapter', {
+                        beforeSpineIndex: earliestIdx
+                    });
                 }
             }
 
@@ -805,27 +811,44 @@
     /**
      * Prepend a chapter's HTML ABOVE the current content. Adjusts scroll
      * position to compensate so the user stays visually on the same content.
+     * Chapters must be inserted in the correct order (higher spineIndex first,
+     * then lower) — this function sorts by spineIndex to maintain ordering.
      */
     window.__dualSpine_prependChapter = function(html, spineIndex, spineHref) {
         if (document.getElementById('ds-chapter-' + spineIndex)) return;
 
         var article = _buildChapterArticle(html, spineIndex, spineHref);
 
-        // Save current scroll position relative to first existing chapter
-        var firstChapter = document.querySelector('article.ds-chapter');
-        var scrollBefore = window.scrollY;
+        // Find the correct insertion point: before the first article whose
+        // spineIndex is greater than the one we're inserting.
+        var articles = document.querySelectorAll('article.ds-chapter');
+        var insertBefore = null;
+        for (var i = 0; i < articles.length; i++) {
+            var idx = parseInt(articles[i].dataset.spineIndex, 10);
+            if (idx > spineIndex) {
+                insertBefore = articles[i];
+                break;
+            }
+        }
 
-        if (firstChapter) {
-            document.body.insertBefore(article, firstChapter);
+        var scrollBefore = window.scrollY;
+        if (insertBefore) {
+            document.body.insertBefore(article, insertBefore);
         } else {
             document.body.appendChild(article);
         }
 
-        // After layout: shift scroll by the height of the prepended article
-        // so the user's view doesn't jump.
+        // Only adjust scroll if we inserted BEFORE the user's current position.
+        // If we inserted in document order before a chapter that's visually above
+        // the user's scroll, shift scroll by the new article's height.
         requestAnimationFrame(function() {
-            var newArticleHeight = article.offsetHeight;
-            window.scrollTo(0, scrollBefore + newArticleHeight);
+            var addedHeight = article.offsetHeight;
+            var articleTop = article.offsetTop;
+            // If the new article ends before (or at) the user's current scroll,
+            // shift scroll so they stay on the same content.
+            if (articleTop <= scrollBefore) {
+                window.scrollTo(0, scrollBefore + addedHeight);
+            }
         });
     };
 

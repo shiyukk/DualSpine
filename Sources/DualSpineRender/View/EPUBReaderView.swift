@@ -200,7 +200,8 @@ public struct EPUBReaderView: UIViewRepresentable {
             }
         }
 
-        /// Enable continuous scroll: wrap current content as chapter, request next.
+        /// Enable continuous scroll: wrap current content, prepend prev chapters,
+        /// append next chapters. Parallel loading for speed.
         func enableContinuousScroll(in webView: WKWebView) {
             let doc = parent.document
             let resolved = doc.package.resolvedSpine
@@ -213,13 +214,27 @@ public struct EPUBReaderView: UIViewRepresentable {
             """
             webView.evaluateJavaScript(js) { [weak self] _, _ in
                 guard let self, let webView = self.webView else { return }
-                // Eagerly append the next 3 chapters for smooth scrolling
-                Task { @MainActor in
-                    for offset in 1...3 {
-                        let idx = self.currentSpineIndex + offset
-                        guard idx < doc.package.resolvedSpine.count else { break }
-                        self.appendContinuousChapter(spineIndex: idx, in: webView)
-                        try? await Task.sleep(for: .milliseconds(50))
+                let current = self.currentSpineIndex
+                let total = resolved.count
+
+                // FORWARD: append next 5 chapters in parallel (no sequential delay)
+                for offset in 1...5 {
+                    let idx = current + offset
+                    guard idx < total else { break }
+                    self.appendContinuousChapter(spineIndex: idx, in: webView)
+                }
+
+                // BACKWARD: prepend prev 2 chapters so user can scroll up
+                // (only needed when starting mid-book, e.g., from TOC/resume)
+                if current > 0 {
+                    Task { @MainActor in
+                        // Small delay so the current chapter layouts first
+                        try? await Task.sleep(for: .milliseconds(100))
+                        for offset in 1...2 {
+                            let idx = current - offset
+                            guard idx >= 0 else { break }
+                            self.prependContinuousChapter(spineIndex: idx, in: webView)
+                        }
                     }
                 }
             }
@@ -422,28 +437,22 @@ public struct EPUBReaderView: UIViewRepresentable {
                 break
 
             case .requestNextChapter(let payload):
-                // JS wants more content — read next 2 chapters from ZIP
+                // JS wants more content — load next 3 chapters in parallel
                 guard let webView else { return }
                 let total = parent.document.package.resolvedSpine.count
-                Task { @MainActor in
-                    for offset in 1...2 {
-                        let idx = payload.afterSpineIndex + offset
-                        guard idx < total else { break }
-                        self.appendContinuousChapter(spineIndex: idx, in: webView)
-                        try? await Task.sleep(for: .milliseconds(30))
-                    }
+                for offset in 1...3 {
+                    let idx = payload.afterSpineIndex + offset
+                    guard idx < total else { break }
+                    appendContinuousChapter(spineIndex: idx, in: webView)
                 }
 
             case .requestPrevChapter(let payload):
-                // JS wants previous content prepended
+                // JS wants previous content — prepend prev 3 in parallel
                 guard let webView else { return }
-                Task { @MainActor in
-                    for offset in 1...2 {
-                        let idx = payload.beforeSpineIndex - offset
-                        guard idx >= 0 else { break }
-                        self.prependContinuousChapter(spineIndex: idx, in: webView)
-                        try? await Task.sleep(for: .milliseconds(30))
-                    }
+                for offset in 1...3 {
+                    let idx = payload.beforeSpineIndex - offset
+                    guard idx >= 0 else { break }
+                    prependContinuousChapter(spineIndex: idx, in: webView)
                 }
 
             case .continuousChapterChanged(let payload):
