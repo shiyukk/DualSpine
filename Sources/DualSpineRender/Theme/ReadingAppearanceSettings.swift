@@ -158,8 +158,11 @@ public enum ReadingMode: String, Sendable, Hashable, Codable, CaseIterable, Iden
     /// Continuous vertical scroll — chapters flow seamlessly with preloading.
     case scroll
     /// Paginated with horizontal slide transition between pages.
+    /// NOTE: Paginated modes are experimental — column layout has
+    /// specificity conflicts with theme CSS that need more work.
     case slide
     /// Paginated with fast fade transition between pages.
+    /// NOTE: Experimental — see .slide.
     case fastFade
 
     public var id: String { rawValue }
