@@ -24,8 +24,11 @@ let package = Package(
         ),
         .target(
             name: "DualSpineRender",
-            dependencies: ["DualSpineCore"],
-            resources: [.copy("Resources/epub-bridge.js")],
+            dependencies: ["DualSpineCore", "SwiftSoup"],
+            resources: [
+                .copy("Resources/epub-bridge.js"),
+                .copy("Resources/reader-controller.js"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
