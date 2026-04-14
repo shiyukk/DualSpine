@@ -797,6 +797,86 @@
     };
 
     /**
+     * Bulk inject all chapters into the document in one DOM mutation.
+     * @param {Array} chapters - [{html, spineIndex, spineHref, position}]
+     *   where position is "before" or "after" relative to current chapter.
+     */
+    window.__dualSpine_injectAllChapters = function(chaptersJSON) {
+        var chapters;
+        try {
+            chapters = JSON.parse(chaptersJSON);
+        } catch (e) {
+            return;
+        }
+        if (!chapters || !chapters.length) return;
+
+        // Build a <template> and set its innerHTML to all articles concatenated.
+        // This is MUCH faster than N separate evaluateJavaScript/DOMParser calls.
+        var htmlParts = [];
+        for (var i = 0; i < chapters.length; i++) {
+            var c = chapters[i];
+            if (document.getElementById('ds-chapter-' + c.spineIndex)) continue;
+            htmlParts.push(
+                '<article class="ds-chapter" id="ds-chapter-' + c.spineIndex +
+                '" data-spine-index="' + c.spineIndex +
+                '" data-spine-href="' + (c.spineHref || '').replace(/"/g, '&quot;') +
+                '" style="display:block;border-top:1px solid rgba(128,128,128,0.1);margin-top:1em;padding-top:1em;">' +
+                c.body + '</article>'
+            );
+        }
+        if (!htmlParts.length) return;
+
+        // Separate prepend vs append
+        var currentIdx = window.__dualSpine_currentContinuousIndex;
+        var beforeHTML = [];
+        var afterHTML = [];
+        for (var j = 0; j < chapters.length; j++) {
+            var ch = chapters[j];
+            if (document.getElementById('ds-chapter-' + ch.spineIndex)) continue;
+            var articleHTML = '<article class="ds-chapter" id="ds-chapter-' + ch.spineIndex +
+                '" data-spine-index="' + ch.spineIndex +
+                '" data-spine-href="' + (ch.spineHref || '').replace(/"/g, '&quot;') +
+                '" style="display:block;border-top:1px solid rgba(128,128,128,0.1);margin-top:1em;padding-top:1em;">' +
+                ch.body + '</article>';
+            if (ch.spineIndex < currentIdx) beforeHTML.push({ idx: ch.spineIndex, html: articleHTML });
+            else if (ch.spineIndex > currentIdx) afterHTML.push({ idx: ch.spineIndex, html: articleHTML });
+        }
+
+        // Sort
+        beforeHTML.sort(function(a, b) { return a.idx - b.idx; });
+        afterHTML.sort(function(a, b) { return a.idx - b.idx; });
+
+        // Append all "after" chapters in one operation
+        if (afterHTML.length) {
+            var afterCombined = afterHTML.map(function(x) { return x.html; }).join('');
+            document.body.insertAdjacentHTML('beforeend', afterCombined);
+        }
+
+        // Prepend all "before" chapters, adjusting scroll to keep user in place
+        if (beforeHTML.length) {
+            var scrollBefore = window.scrollY;
+            var firstExisting = document.querySelector('article.ds-chapter');
+            var beforeCombined = beforeHTML.map(function(x) { return x.html; }).join('');
+
+            if (firstExisting) {
+                firstExisting.insertAdjacentHTML('beforebegin', beforeCombined);
+            } else {
+                document.body.insertAdjacentHTML('afterbegin', beforeCombined);
+            }
+
+            // After layout, shift scroll so the user stays on the same content
+            requestAnimationFrame(function() {
+                // Find the total added height: new first article to old first article
+                var newFirst = document.querySelector('article.ds-chapter');
+                if (newFirst && firstExisting && newFirst !== firstExisting) {
+                    var addedHeight = firstExisting.offsetTop;
+                    window.scrollTo(0, scrollBefore + addedHeight);
+                }
+            });
+        }
+    };
+
+    /**
      * Append a chapter's HTML below the current content (continuous scroll).
      */
     window.__dualSpine_appendChapter = function(html, spineIndex, spineHref) {

@@ -224,9 +224,10 @@ public struct EPUBReaderView: UIViewRepresentable {
             }
         }
 
-        /// Enable continuous scroll: load the ENTIRE book into the DOM as one
-        /// continuous document. Trades upfront memory for zero scroll lag and
-        /// instant TOC navigation (scroll-to-element instead of page reload).
+        /// Enable continuous scroll: load the ENTIRE book into the DOM in a
+        /// SINGLE bulk DOM operation (not N separate evaluateJavaScript calls).
+        /// After this runs, every chapter is scrollable; TOC navigation is
+        /// instant native scroll.
         func enableContinuousScroll(in webView: WKWebView) {
             let doc = parent.document
             let resolved = doc.package.resolvedSpine
@@ -236,7 +237,6 @@ public struct EPUBReaderView: UIViewRepresentable {
             let total = resolved.count
             let currentHref = resolved[current].1.href
 
-            // Mark current chapter as the only already-injected one (from WebView load)
             injectedSpineIndices = [current]
 
             let setupJS = """
@@ -244,25 +244,73 @@ public struct EPUBReaderView: UIViewRepresentable {
             window.__dualSpine_currentContinuousIndex = \(current);
             window.__dualSpine_wrapAsContinuousChapter(\(current), '\(currentHref)');
             """
+
             webView.evaluateJavaScript(setupJS) { [weak self] _, _ in
                 guard let self, let webView = self.webView else { return }
+                // Gather all other chapters' HTML in parallel, then inject in ONE call
+                Task.detached(priority: .userInitiated) { [weak self] in
+                    guard let self else { return }
+                    let cache = self.chapterCache
+                    var items: [(idx: Int, href: String, body: String)] = []
 
-                // Append ALL chapters after current
-                for idx in (current + 1)..<total {
-                    self.appendContinuousChapter(spineIndex: idx, in: webView)
-                }
-
-                // Prepend ALL chapters before current (after brief delay so
-                // current chapter layouts first — avoids scroll-adjust jumps)
-                if current > 0 {
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(200))
-                        for idx in stride(from: current - 1, through: 0, by: -1) {
-                            self.prependContinuousChapter(spineIndex: idx, in: webView)
+                    await withTaskGroup(of: (Int, String, String)?.self) { group in
+                        for idx in 0..<total where idx != current {
+                            let href = resolved[idx].1.href
+                            group.addTask {
+                                guard let fullHtml = await cache.html(forSpineIndex: idx) else { return nil }
+                                let body = Self.extractBody(from: fullHtml)
+                                return (idx, href, body)
+                            }
                         }
+                        for await result in group {
+                            if let r = result { items.append(r) }
+                        }
+                    }
+
+                    // Mark all as injected
+                    await MainActor.run {
+                        for it in items { self.injectedSpineIndices.insert(it.idx) }
+                    }
+
+                    // Build JSON payload for bulk injection
+                    let jsonArray = items.map { item -> [String: Any] in
+                        return [
+                            "spineIndex": item.idx,
+                            "spineHref": item.href,
+                            "body": item.body
+                        ]
+                    }
+                    guard let jsonData = try? JSONSerialization.data(withJSONObject: jsonArray),
+                          let jsonString = String(data: jsonData, encoding: .utf8) else { return }
+
+                    // Escape for JS string literal (safer than template literal for large payloads)
+                    let escaped = jsonString
+                        .replacingOccurrences(of: "\\", with: "\\\\")
+                        .replacingOccurrences(of: "`", with: "\\`")
+                        .replacingOccurrences(of: "$", with: "\\$")
+
+                    await MainActor.run {
+                        let js = "window.__dualSpine_injectAllChapters(`\(escaped)`)"
+                        webView.evaluateJavaScript(js)
                     }
                 }
             }
+        }
+
+        /// Extract body content from full XHTML document.
+        nonisolated static func extractBody(from html: String) -> String {
+            // Find <body...> and </body>
+            let lowerHtml = html.lowercased()
+            guard let bodyStartTag = lowerHtml.range(of: "<body"),
+                  let bodyEndTag = lowerHtml.range(of: ">", range: bodyStartTag.upperBound..<lowerHtml.endIndex),
+                  let bodyClose = lowerHtml.range(of: "</body>", range: bodyEndTag.upperBound..<lowerHtml.endIndex)
+            else {
+                return html
+            }
+            // Convert to original-case indices
+            let start = html.index(html.startIndex, offsetBy: lowerHtml.distance(from: lowerHtml.startIndex, to: bodyEndTag.upperBound))
+            let end = html.index(html.startIndex, offsetBy: lowerHtml.distance(from: lowerHtml.startIndex, to: bodyClose.lowerBound))
+            return String(html[start..<end])
         }
 
         /// Scroll to a chapter's article WITHOUT reloading the webview.

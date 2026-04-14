@@ -195,7 +195,8 @@ struct MIMETypeTests {
 
     @Test("Detects common EPUB content types")
     func commonTypes() {
-        #expect(EPUBArchive.mimeType(for: "chapter.xhtml") == "application/xhtml+xml")
+        // XHTML is served as text/html for permissive parsing
+        #expect(EPUBArchive.mimeType(for: "chapter.xhtml") == "text/html")
         #expect(EPUBArchive.mimeType(for: "style.css") == "text/css")
         #expect(EPUBArchive.mimeType(for: "cover.jpg") == "image/jpeg")
         #expect(EPUBArchive.mimeType(for: "font.woff2") == "font/woff2")

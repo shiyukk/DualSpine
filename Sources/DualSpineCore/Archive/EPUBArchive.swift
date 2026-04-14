@@ -85,7 +85,10 @@ public final class EPUBArchive {
     }
 
     private static let mimeTypes: [String: String] = [
-        "xhtml": "application/xhtml+xml",
+        // Serve XHTML as text/html so WebKit parses permissively.
+        // Strict XHTML parsing breaks on missing namespace declarations
+        // when we inject content from other chapters at runtime.
+        "xhtml": "text/html",
         "html": "text/html",
         "htm": "text/html",
         "xml": "application/xml",
