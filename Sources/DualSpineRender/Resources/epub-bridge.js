@@ -93,20 +93,35 @@
         var info = getProgressInfo();
         postMessage('progressUpdated', info);
 
-        // In continuous scroll mode, when nearing bottom, request next chapter
+        // In continuous scroll mode, append next / prepend previous as user scrolls
         if (window.__dualSpine_continuousEnabled) {
             var scrollTop = window.scrollY || document.documentElement.scrollTop;
             var docHeight = document.documentElement.scrollHeight;
             var viewportHeight = window.innerHeight;
-            // Request next chapter when within 2 viewport heights of the end
+            var articles = document.querySelectorAll('article.ds-chapter');
+
+            // Forward: request next chapter when within 2 viewport heights of end
             if ((scrollTop + viewportHeight * 2) >= docHeight) {
-                var articles = document.querySelectorAll('article.ds-chapter');
                 var last = articles[articles.length - 1];
                 if (last && !last.dataset.nextRequested) {
                     last.dataset.nextRequested = '1';
                     postMessage('requestNextChapter', {
                         afterSpineIndex: parseInt(last.dataset.spineIndex, 10)
                     });
+                }
+            }
+
+            // Backward: request previous chapter when within 1 viewport of top
+            if (scrollTop < viewportHeight) {
+                var first = articles[0];
+                if (first && !first.dataset.prevRequested) {
+                    var firstIdx = parseInt(first.dataset.spineIndex, 10);
+                    if (firstIdx > 0) {
+                        first.dataset.prevRequested = '1';
+                        postMessage('requestPrevChapter', {
+                            beforeSpineIndex: firstIdx
+                        });
+                    }
                 }
             }
 
@@ -779,13 +794,42 @@
 
     /**
      * Append a chapter's HTML below the current content (continuous scroll).
-     * @param {string} html - Full XHTML body content (from <body> to </body>)
-     * @param {number} spineIndex
-     * @param {string} spineHref
      */
     window.__dualSpine_appendChapter = function(html, spineIndex, spineHref) {
         if (document.getElementById('ds-chapter-' + spineIndex)) return;
 
+        var article = _buildChapterArticle(html, spineIndex, spineHref);
+        document.body.appendChild(article);
+    };
+
+    /**
+     * Prepend a chapter's HTML ABOVE the current content. Adjusts scroll
+     * position to compensate so the user stays visually on the same content.
+     */
+    window.__dualSpine_prependChapter = function(html, spineIndex, spineHref) {
+        if (document.getElementById('ds-chapter-' + spineIndex)) return;
+
+        var article = _buildChapterArticle(html, spineIndex, spineHref);
+
+        // Save current scroll position relative to first existing chapter
+        var firstChapter = document.querySelector('article.ds-chapter');
+        var scrollBefore = window.scrollY;
+
+        if (firstChapter) {
+            document.body.insertBefore(article, firstChapter);
+        } else {
+            document.body.appendChild(article);
+        }
+
+        // After layout: shift scroll by the height of the prepended article
+        // so the user's view doesn't jump.
+        requestAnimationFrame(function() {
+            var newArticleHeight = article.offsetHeight;
+            window.scrollTo(0, scrollBefore + newArticleHeight);
+        });
+    };
+
+    function _buildChapterArticle(html, spineIndex, spineHref) {
         var article = document.createElement('article');
         article.className = 'ds-chapter';
         article.id = 'ds-chapter-' + spineIndex;
@@ -793,7 +837,6 @@
         article.dataset.spineHref = spineHref;
         article.style.cssText = 'display:block;border-top:1px solid rgba(128,128,128,0.1);margin-top:1em;padding-top:1em;';
 
-        // Parse HTML and extract body content
         var parser = new DOMParser();
         var doc = parser.parseFromString(html, 'text/html');
         var body = doc.body;
@@ -804,9 +847,8 @@
         } else {
             article.innerHTML = html;
         }
-
-        document.body.appendChild(article);
-    };
+        return article;
+    }
 
     /**
      * Find the chapter article currently most in view and return its spine index.

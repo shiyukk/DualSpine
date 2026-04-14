@@ -34,6 +34,9 @@ public enum EPUBBridgeMessage: Sendable {
     /// JS is requesting the next chapter be appended (continuous scroll).
     case requestNextChapter(RequestNextChapterPayload)
 
+    /// JS is requesting the previous chapter be prepended (continuous scroll).
+    case requestPrevChapter(RequestPrevChapterPayload)
+
     /// The "current" chapter changed in continuous scroll (based on scroll position).
     case continuousChapterChanged(ContinuousChapterPayload)
 
@@ -96,6 +99,10 @@ public enum EPUBBridgeMessage: Sendable {
 
     public struct RequestNextChapterPayload: Codable, Sendable {
         public let afterSpineIndex: Int
+    }
+
+    public struct RequestPrevChapterPayload: Codable, Sendable {
+        public let beforeSpineIndex: Int
     }
 
     public struct ContinuousChapterPayload: Codable, Sendable {
@@ -169,6 +176,12 @@ public enum EPUBBridgeMessage: Sendable {
                 return nil
             }
             return .requestNextChapter(payload)
+
+        case "requestPrevChapter":
+            guard let payload = decodePayload(RequestPrevChapterPayload.self, from: dict["payload"]) else {
+                return nil
+            }
+            return .requestPrevChapter(payload)
 
         case "continuousChapterChanged":
             guard let payload = decodePayload(ContinuousChapterPayload.self, from: dict["payload"]) else {

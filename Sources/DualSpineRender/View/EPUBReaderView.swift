@@ -167,6 +167,15 @@ public struct EPUBReaderView: UIViewRepresentable {
 
         /// Append a chapter's XHTML into the current document for continuous scroll.
         func appendContinuousChapter(spineIndex: Int, in webView: WKWebView) {
+            injectContinuousChapter(spineIndex: spineIndex, prepend: false, in: webView)
+        }
+
+        /// Prepend a chapter's XHTML above the current content (scroll-up navigation).
+        func prependContinuousChapter(spineIndex: Int, in webView: WKWebView) {
+            injectContinuousChapter(spineIndex: spineIndex, prepend: true, in: webView)
+        }
+
+        private func injectContinuousChapter(spineIndex: Int, prepend: Bool, in webView: WKWebView) {
             let doc = parent.document
             let resolved = doc.package.resolvedSpine
             guard spineIndex >= 0, spineIndex < resolved.count else { return }
@@ -174,6 +183,7 @@ public struct EPUBReaderView: UIViewRepresentable {
             let archivePath = doc.archivePath(forHref: manifest.href)
             let href = manifest.href
             let actor = parent.resourceActor
+            let jsFunc = prepend ? "__dualSpine_prependChapter" : "__dualSpine_appendChapter"
 
             Task {
                 guard let (data, _) = try? await actor.readResource(at: archivePath),
@@ -183,7 +193,7 @@ public struct EPUBReaderView: UIViewRepresentable {
                     .replacingOccurrences(of: "`", with: "\\`")
                     .replacingOccurrences(of: "$", with: "\\$")
                 let hrefEscaped = href.replacingOccurrences(of: "'", with: "\\'")
-                let js = "window.__dualSpine_appendChapter(`\(escaped)`, \(spineIndex), '\(hrefEscaped)')"
+                let js = "window.\(jsFunc)(`\(escaped)`, \(spineIndex), '\(hrefEscaped)')"
                 await MainActor.run {
                     webView.evaluateJavaScript(js)
                 }
@@ -413,7 +423,6 @@ public struct EPUBReaderView: UIViewRepresentable {
 
             case .requestNextChapter(let payload):
                 // JS wants more content — read next 2 chapters from ZIP
-                // (one to satisfy the request + one more buffer)
                 guard let webView else { return }
                 let total = parent.document.package.resolvedSpine.count
                 Task { @MainActor in
@@ -421,6 +430,18 @@ public struct EPUBReaderView: UIViewRepresentable {
                         let idx = payload.afterSpineIndex + offset
                         guard idx < total else { break }
                         self.appendContinuousChapter(spineIndex: idx, in: webView)
+                        try? await Task.sleep(for: .milliseconds(30))
+                    }
+                }
+
+            case .requestPrevChapter(let payload):
+                // JS wants previous content prepended
+                guard let webView else { return }
+                Task { @MainActor in
+                    for offset in 1...2 {
+                        let idx = payload.beforeSpineIndex - offset
+                        guard idx >= 0 else { break }
+                        self.prependContinuousChapter(spineIndex: idx, in: webView)
                         try? await Task.sleep(for: .milliseconds(30))
                     }
                 }
